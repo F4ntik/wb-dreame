@@ -84,7 +84,7 @@
           </fieldset>
           <fieldset id="zone-fields" hidden>
             <legend>Координаты зоны</legend>
-            <p class="muted field-hint">X растёт вправо, Y вверх. Укажите противоположные углы.</p>
+            <p class="muted field-hint">Укажите противоположные углы в координатах карты робота.</p>
             <div class="form-grid coords">
               <label>X₁<input id="zone-x1" type="number" step="1"></label>
               <label>Y₁<input id="zone-y1" type="number" step="1"></label>
@@ -92,6 +92,7 @@
               <label>Y₂<input id="zone-y2" type="number" step="1"></label>
             </div>
             <p id="zone-measure-summary" class="muted field-hint zone-measure-summary" aria-live="polite" hidden></p>
+            <button id="clear-zone" type="button" disabled>Очистить зону</button>
           </fieldset>
           <fieldset id="tuning" hidden>
             <legend>Параметры уборки</legend>

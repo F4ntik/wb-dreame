@@ -199,6 +199,23 @@ export function zoneInBounds(corners, bounds) {
   return [x1, y1, x2, y2];
 }
 
+export function dragZone(zone, corner, [dx, dy], [left, bottom, right, top]) {
+  const [x1, y1, x2, y2] = zone;
+  const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
+  if (corner === null) {
+    const x = clamp(dx, left - x1, right - x2);
+    const y = clamp(dy, bottom - y1, top - y2);
+    return [x1 + x, y1 + y, x2 + x, y2 + y];
+  }
+
+  const nearX = corner < 2;
+  const nearY = corner % 2 === 0;
+  return [nearX ? clamp(x1 + dx, left, x2 - 1) : x1,
+    nearY ? clamp(y1 + dy, bottom, y2 - 1) : y1,
+    nearX ? x2 : clamp(x2 + dx, x1 + 1, right),
+    nearY ? y2 : clamp(y2 + dy, y1 + 1, top)];
+}
+
 const overlayMinimum = { no_go: 3, no_mop: 3, wall: 2, path: 2, robot: 1 };
 const routeModes = new Set(['S', 'M', 'W', 'L']);
 const maxCoverageRuns = 32_768;

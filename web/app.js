@@ -1,4 +1,4 @@
-import { adjustUnderlay, cleaningCoverage, jobRequest, mapInfo, mapOverlays, mapView, pendingRequest, pointOnMap, preferenceInfo,
+import { adjustUnderlay, cleaningCoverage, dragZone, jobRequest, mapInfo, mapOverlays, mapView, pendingRequest, pointOnMap, preferenceInfo,
   preferenceRequest, rectanglePaths, requestIdentity, safeMapSvg, svgNS, underlayInfo, underlayUrl, zoneHitsNoGo, zoneInBounds,
   zoneMeasures } from './controls.js';
 import { historyView } from './history.js';
@@ -16,6 +16,16 @@ const form = byId('job-form');
 const zoneFields = ['zone-x1', 'zone-y1', 'zone-x2', 'zone-y2'].map(byId);
 const zoneBadge = byId('zone-measure');
 const zoneSummary = byId('zone-measure-summary');
+const clearZone = byId('clear-zone');
+const zoneHandles = make('div', undefined, 'zone-handles');
+zoneHandles.setAttribute('aria-hidden', 'true');
+const zoneCorners = [0, 1, 2, 3].map(corner => {
+  const handle = make('span', undefined, 'zone-handle');
+  handle.dataset.corner = corner;
+  return handle;
+});
+const zoneMove = make('span', undefined, 'zone-handle');
+zoneHandles.append(...zoneCorners, zoneMove);
 const orientation = byId('map-orientation');
 const selects = ['suction', 'water', 'repeats'];
 const submit = byId('submit-job');
@@ -155,9 +165,10 @@ function targetText() {
 }
 
 function updateOverlay() {
-  const zone = overlay && map && mapHost.dataset.mode === 'zone' && zoneInBounds(drag ? [...drag.start, ...drag.end] : readZone(), map.bounds);
+  const zone = overlay && map && mapHost.dataset.mode === 'zone' && (drag ? drag.preview : zoneInBounds(readZone(), map.bounds));
   if (overlay) overlay.style.display = zone ? '' : 'none';
   zoneBadge.hidden = !zone;
+  zoneHandles.hidden = !zone;
   zoneSummary.hidden = !zone || Boolean(drag);
   if (!zone) return;
   const [x1, y1, x2, y2] = zone;
@@ -178,12 +189,41 @@ function updateOverlay() {
   const corners = [[x1, -y1], [x1, -y2], [x2, -y1], [x2, -y2]]
     .map(([x, y]) => new DOMPoint(x, y).matrixTransform(matrix));
   const host = mapHost.getBoundingClientRect();
+  positionZoneHandles(corners, host);
   const margin = 7;
   const centreX = (Math.min(...corners.map(point => point.x)) + Math.max(...corners.map(point => point.x))) / 2 - host.left;
   const top = Math.min(...corners.map(point => point.y)) - host.top;
   const x = Math.max(margin, Math.min(host.width - zoneBadge.offsetWidth - margin, centreX - zoneBadge.offsetWidth / 2));
   const y = Math.max(margin, Math.min(host.height - zoneBadge.offsetHeight - margin, top - zoneBadge.offsetHeight - margin));
   zoneBadge.style.transform = `translate(${x}px, ${y}px)`;
+}
+
+function positionZoneHandles([first, upper, right, last], host) {
+  const offset = (dx, dy) => {
+    const scale = Math.max(.5, 19 / Math.hypot(dx, dy));
+    return [dx * scale, dy * scale];
+  };
+  // Keep all handles reachable when either side is very short on screen.
+  const [xx, xy] = offset(right.x - first.x, right.y - first.y);
+  const [yx, yy] = offset(upper.x - first.x, upper.y - first.y);
+  const fit = (value, size, extent) => {
+    const inset = Math.min(size / 2, extent + 8);
+    return Math.max(inset, Math.min(size - inset, value));
+  };
+  const centreX = fit((first.x + last.x) / 2 - host.left - mapHost.clientLeft,
+    mapHost.clientWidth, Math.abs(xx) + Math.abs(yx));
+  const centreY = fit((first.y + last.y) / 2 - host.top - mapHost.clientTop,
+    mapHost.clientHeight, Math.abs(xy) + Math.abs(yy));
+  const place = (handle, x, y) => {
+    handle.style.left = `${centreX + x}px`;
+    handle.style.top = `${centreY + y}px`;
+  };
+  zoneCorners.forEach((handle, corner) => {
+    const x = corner < 2 ? -1 : 1;
+    const y = corner % 2 === 0 ? -1 : 1;
+    place(handle, x * xx + y * yx, x * xy + y * yy);
+  });
+  place(zoneMove, 0, 0);
 }
 
 function measureText(value) {
@@ -213,9 +253,10 @@ function updateRoomPins() {
 
 function renderJob() {
   const drawZone = target === 'zone' && !(cleanGenius > 0);
-  if (!drawZone) drag = null;
+  if (!drawZone) stopZoneDrag();
   mapHost.dataset.mode = target === 'zone' && !drawZone ? 'rooms' : target;
   byId('zone-fields').hidden = !drawZone;
+  clearZone.disabled = !drag && !zoneFields.some(field => field.value);
   byId('tuning').hidden = target === 'all' || cleanGenius > 0;
   for (const id of selects) {
     const field = byId(id);
@@ -223,7 +264,9 @@ function renderJob() {
   }
   label(byId('target-summary'), targetText());
   label(byId('map-hint'), !map ? 'Ожидаем актуальную сохранённую карту.' : drawZone
-    ? 'Проведите от одного угла зоны до другого или укажите координаты.' : 'Выберите комнаты на карте или в списке.');
+    ? (zoneInBounds(readZone(), map.bounds)
+      ? 'Тяните зону за середину, а для изменения размера — за угловой маркер. Новую зону можно нарисовать снаружи текущей.'
+      : 'Проведите от одного угла зоны до другого или укажите координаты.') : 'Выберите комнаты на карте или в списке.');
   const order = new Map(target === 'rooms' ? [...rooms].map((id, index) => [id, index + 1]) : []);
   for (const element of [mapHost, roomList].flatMap(host => [...host.querySelectorAll('[data-room]')])) {
     const position = order.get(Number(element.dataset.room));
@@ -237,7 +280,7 @@ function renderJob() {
   }
   updateRoomPins();
   updateOverlay();
-  submit.disabled = busy || preferenceBusy === 'cleangenius' || awaitingMode !== null || telemetry.online !== true || !prepared();
+  submit.disabled = busy || Boolean(drag) || preferenceBusy === 'cleangenius' || awaitingMode !== null || telemetry.online !== true || !prepared();
   label(submit, telemetry.allow_commands === true ? 'Начать уборку' : 'Проверить задание');
   label(byId('submit-hint'), preferenceBusy === 'cleangenius' || awaitingMode !== null ? 'Ждём обновления режима CleanGenius.' :
     target === 'zone' && !drawZone ? '' : telemetry.online !== true ? 'Робот должен быть на связи.' : !map
@@ -250,7 +293,6 @@ function renderJob() {
 }
 
 function changeTarget(kind) {
-  if (kind !== 'zone') drag = null;
   target = kind;
   form.elements.target.value = kind;
   renderJob();
@@ -307,7 +349,7 @@ function replaceMap(next) {
   overlay.classList.add('zone-overlay');
   overlay.setAttribute('aria-hidden', 'true');
   scene.append(overlaysGroup, overlay);
-  mapHost.replaceChildren(svg, roomPins, robotMarker, zoneBadge);
+  mapHost.replaceChildren(svg, roomPins, robotMarker, zoneBadge, zoneHandles);
 }
 
 function showRoomAreas() {
@@ -322,10 +364,10 @@ function showRoomAreas() {
 function clearAlignmentZone(message) {
   if (!drag && !confirmingZone && !zoneFields.some(field => field.value)) return;
   zoneEpoch++;
-  drag = null;
+  stopZoneDrag();
   for (const field of zoneFields) field.value = '';
   if (confirmingZone && modal.open) modal.close('cancel');
-  if (target === 'zone' || confirmingZone) notify(message, false);
+  if (message && (target === 'zone' || confirmingZone)) notify(message, false);
   renderJob();
 }
 
@@ -464,17 +506,21 @@ function orientMap() {
   orientation.disabled = !visible;
   if (!scene || !map) return;
   const { angle, center, viewBox } = mapView(map.bounds, visible ? underlayCalibration : null, orientation.value === 'plan');
-  scene.setAttribute('transform', `rotate(${angle} ${center.join(' ')})`);
-  svg.setAttribute('viewBox', viewBox.join(' '));
-  updateRoomPins();
+  const transform = `rotate(${angle} ${center.join(' ')})`;
+  const box = viewBox.join(' ');
+  const changedDuringDrag = drag && (svg.getAttribute('viewBox') !== box || scene.getAttribute('transform') !== transform);
+  if (changedDuringDrag) stopZoneDrag();
+  scene.setAttribute('transform', transform);
+  svg.setAttribute('viewBox', box);
   updateRobotMarker();
-  updateOverlay();
+  if (changedDuringDrag) renderJob();
+  else {
+    updateRoomPins();
+    updateOverlay();
+  }
 }
 
-orientation.addEventListener('change', () => {
-  drag = null;
-  orientMap();
-});
+orientation.addEventListener('change', orientMap);
 new ResizeObserver(() => {
   updateRoomPins();
   updateRobotMarker();
@@ -621,7 +667,11 @@ form.addEventListener('change', event => {
   if (event.target.name === 'target') changeTarget(event.target.value);
   else renderJob();
 });
-for (const input of zoneFields) input.addEventListener('input', renderJob);
+for (const input of zoneFields) input.addEventListener('input', () => {
+  stopZoneDrag();
+  renderJob();
+});
+clearZone.addEventListener('click', () => clearAlignmentZone());
 roomList.addEventListener('click', event => {
   const room = event.target.closest('button[data-room]');
   if (room) toggleRoom(room.dataset.room);
@@ -638,40 +688,63 @@ mapHost.addEventListener('keydown', event => {
   }
 });
 
-function pointerPoint(event, clamp) {
+function pointerPoint(event) {
   const matrix = scene?.getScreenCTM();
   if (!matrix || !map) return null;
   const { x, y } = new DOMPoint(event.clientX, event.clientY).matrixTransform(matrix.inverse());
-  return pointOnMap(x, y, map.bounds, clamp);
+  return Number.isFinite(x) && Number.isFinite(y) ? [x, -y] : null;
+}
+
+function updateZoneDrag(event) {
+  const point = pointerPoint(event);
+  if (!point) return;
+  if (drag.zone) {
+    drag.preview = dragZone(drag.zone, drag.corner, point.map((value, index) => Math.round(value - drag.start[index])), map.bounds);
+  } else {
+    const end = pointOnMap(point[0], -point[1], map.bounds, true);
+    drag.preview = zoneInBounds([...drag.start, ...end], map.bounds);
+  }
+}
+
+function stopZoneDrag() {
+  if (!drag) return;
+  const { id } = drag;
+  drag = null;
+  if (mapHost.hasPointerCapture(id)) mapHost.releasePointerCapture(id);
 }
 
 mapHost.addEventListener('pointerdown', event => {
-  if (mapHost.dataset.mode !== 'zone' || event.button !== 0 || drag) return;
-  const start = pointerPoint(event, false);
+  if (mapHost.dataset.mode !== 'zone' || event.button !== 0 || !event.isPrimary || drag) return;
+  const point = pointerPoint(event);
+  if (!point) return;
+  const corner = event.target.dataset.corner;
+  const editing = corner !== undefined || event.target === overlay || event.target === zoneMove;
+  const zone = editing ? zoneInBounds(readZone(), map.bounds) : null;
+  const start = zone ? point : pointOnMap(point[0], -point[1], map.bounds);
   if (!start) return;
   event.preventDefault();
   mapHost.setPointerCapture(event.pointerId);
-  drag = { id: event.pointerId, start, end: start };
-  updateOverlay();
+  drag = { id: event.pointerId, start, zone, corner: corner === undefined ? null : Number(corner), preview: zone };
+  renderJob();
 });
 mapHost.addEventListener('pointermove', event => {
   if (drag?.id !== event.pointerId) return;
-  drag.end = pointerPoint(event, true) || drag.end;
+  updateZoneDrag(event);
   updateOverlay();
 });
 mapHost.addEventListener('pointerup', event => {
   if (drag?.id !== event.pointerId) return;
-  const end = pointerPoint(event, true) || drag.end;
-  const zone = map && zoneInBounds([...drag.start, ...end], map.bounds);
-  drag = null;
+  updateZoneDrag(event);
+  const zone = drag.preview;
+  stopZoneDrag();
   if (zone) zoneFields.forEach((field, index) => { field.value = zone[index]; });
   renderJob();
 });
 for (const type of ['pointercancel', 'lostpointercapture']) {
   mapHost.addEventListener(type, event => {
     if (drag?.id === event.pointerId) {
-      drag = null;
-      updateOverlay();
+      stopZoneDrag();
+      renderJob();
     }
   });
 }
@@ -961,7 +1034,7 @@ async function send(action) {
   const job = prepared(action);
   const preview = action === 'start' && telemetry.allow_commands !== true;
   if (busy || preferenceBusy === 'cleangenius' || (action === 'start' && awaitingMode !== null) ||
-      telemetry.online !== true || !job || (!preview && telemetry.allow_commands !== true)) return;
+      telemetry.online !== true || !job || (job.kind === 'zone' && drag) || (!preview && telemetry.allow_commands !== true)) return;
   const endpoint = preview ? './api/preview' : './api/job';
   const key = JSON.stringify([endpoint, job]);
   const preparedMode = cleanGenius;

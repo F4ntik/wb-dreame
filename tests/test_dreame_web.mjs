@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { adjustUnderlay, cleaningCoverage, jobRequest, mapInfo, mapOverlays, mapView, pendingRequest, pointOnMap, preferenceInfo,
+import { adjustUnderlay, cleaningCoverage, dragZone, jobRequest, mapInfo, mapOverlays, mapView, pendingRequest, pointOnMap, preferenceInfo,
   preferenceRequest, rectanglePaths, requestIdentity, underlayInfo, zoneHitsNoGo, zoneInBounds, zoneMeasures } from '../web/controls.js';
 
 const map = mapInfo({ id: 7, revision: 'r2', bounds: [-300, -100, 500, 650],
@@ -20,6 +20,15 @@ test('keyboard corners normalize in either order and validate bounds', () => {
   assert.equal(zoneInBounds([200, 48, 200, -10], map.bounds), null);
   assert.equal(zoneInBounds([-301, 48, 200, -10], map.bounds), null);
   assert.equal(zoneInBounds([NaN, 48, 200, -10], map.bounds), null);
+});
+
+test('dragging clamps the rectangle and each corner, keeping the opposite sides fixed', () => {
+  const zone = [-230, -10, 200, 480];
+  assert.deepEqual(dragZone(zone, null, [-1000, 1000], map.bounds), [-300, 160, 130, 650]);
+  assert.deepEqual(dragZone(zone, 0, [-1000, 1000], map.bounds), [-300, 479, 200, 480]);
+  assert.deepEqual(dragZone(zone, 1, [1000, 1000], map.bounds), [199, -10, 200, 650]);
+  assert.deepEqual(dragZone(zone, 2, [1000, -1000], map.bounds), [-230, -100, 500, 480]);
+  assert.deepEqual(dragZone(zone, 3, [-1000, -1000], map.bounds), [-230, -10, -229, -9]);
 });
 
 test('selection only sends applicable options, including zero suction', () => {
