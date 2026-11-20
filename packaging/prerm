@@ -1,0 +1,11 @@
+#!/bin/sh
+set -eu
+if [ -z "${DPKG_ROOT:-}" ] && [ -d /run/systemd/system ]; then
+    if [ "$1" = remove ] || { [ "$1" = upgrade ] && dpkg --compare-versions "$2" lt '0.1.0~preview8'; }; then
+        wb-dreame remove-panel || echo "HomeUI unavailable; panel registration retained" >&2
+    fi
+fi
+if [ "$1" = remove ] && [ -z "${DPKG_ROOT:-}" ] && [ -d /run/systemd/system ]; then
+    deb-systemd-invoke stop wb-mqtt-dreame.service
+    timeout 8 wb-dreame clear-retained || echo "Local MQTT unavailable; device metadata may remain" >&2
+fi

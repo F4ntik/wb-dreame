@@ -1,0 +1,11 @@
+{
+  "enabled": false,
+  "contact": "",
+  "openValue": null,
+  "mapId": null,
+  "revision": "",
+  "target": {"kind": "rooms", "rooms": []},
+  "minOpenings": 15,
+  "windowStart": "19:00",
+  "windowEnd": "21:00"
+}

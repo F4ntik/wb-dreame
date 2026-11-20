@@ -1,0 +1,25 @@
+#!/bin/sh
+set -eu
+r=${DPKG_ROOT:-}
+if [ "$1" = purge ]; then
+    d="$r/mnt/data/etc/wb-mqtt-dreame"
+    if [ -z "$r" ] && findmnt --fstab -rn --mountpoint /mnt/data >/dev/null && ! mountpoint -q /mnt/data; then
+        echo "Mount WB data before purging its settings" >&2; exit 1
+    fi
+    if [ -d "$d" ] && [ ! -L "$d" ]; then
+        rm -f "$d/config.json" "$d/account.json" "$d/underlay.json" "$d/underlay.jpg"
+        if [ -d "$d/state" ] && [ ! -L "$d/state" ]; then
+            rm -f "$d/state/session.json" "$d/state/jobs.sqlite3" "$d/state/jobs.sqlite3-journal" "$d/state/underlay-alignment.json"
+            rm -f "$d/state/mqtt-owner.json" "$d/state/mqtt-legacy-preview17"
+            rmdir "$d/state" 2>/dev/null || :
+        fi
+        rmdir "$d" 2>/dev/null || :
+    fi
+    deb-systemd-helper purge wb-mqtt-dreame.service >/dev/null
+fi
+if [ -z "$r" ] && [ -d /run/systemd/system ]; then
+    systemctl daemon-reload
+    if [ ! -e /usr/share/wb-mqtt-homeui/nginx/includes/wb-mqtt-dreame.conf ] && systemctl is-active --quiet nginx; then
+        nginx -t && systemctl reload nginx
+    fi
+fi

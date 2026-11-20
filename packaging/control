@@ -1,0 +1,12 @@
+Package: wb-mqtt-dreame
+Version: 0.1.0~preview18
+Homepage: https://github.com/F4ntik/wb-dreame
+Section: misc
+Priority: optional
+Architecture: all
+Maintainer: wb-mqtt-dreame project <80433000+F4ntik@users.noreply.github.com>
+Depends: init-system-helpers, systemd (>= 247), wb-homeui-backend (>= 2.248.1), wb-mqtt-homeui (>= 2.248.1), python3 (>= 3.13), python3-certifi, python3-cryptography (>= 42), python3-numpy, python3-openssl, python3-paho-mqtt (>= 2)
+Recommends: wb-mqtt-confed
+Description: Dreame L40 Ultra and L40s Pro Ultra integration for Wiren Board
+ Publishes device status to local MQTT. Configuration and credentials are
+ stored in the Wiren Board persistent data partition.

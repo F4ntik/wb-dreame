@@ -1,0 +1,2 @@
+#!/bin/sh
+exec /usr/bin/python3 -E -s -B /usr/lib/wb-mqtt-dreame/cli.py "$@"

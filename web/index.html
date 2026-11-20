@@ -1,0 +1,222 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Пылесос Dreame</title>
+  <link rel="stylesheet" href="./style.css">
+  <script type="module" src="./app.js"></script>
+</head>
+<body>
+  <main class="shell">
+    <a id="back-link" class="back" href="/#/dashboards/svg/view/dreame-vacuum">← Панель Wiren Board</a>
+    <header class="page-header">
+      <div><h1>Пылесос</h1><p id="model" class="muted">Dreame</p></div>
+      <p id="connection" class="connection" data-online="false" role="status">Получаем состояние</p>
+    </header>
+
+    <section class="summary" aria-label="Состояние пылесоса">
+      <div><span>Состояние</span><strong id="robot-state">—</strong></div>
+      <div><span>Заряд</span><div class="battery-reading"><strong id="battery">—</strong><span class="battery-gauge" aria-hidden="true"><span id="battery-fill"></span></span></div></div>
+      <div><span>Док-станция</span><strong id="dock-state">—</strong></div>
+    </section>
+
+    <div class="work-area">
+      <section class="card map-card" aria-labelledby="map-title">
+        <header class="section-heading"><h2 id="map-title">Карта помещений</h2><p id="map-id" class="muted"></p></header>
+        <p id="map-hint" class="map-hint muted">После загрузки карты здесь появятся комнаты.</p>
+        <div id="underlay-controls" class="underlay-controls" hidden>
+          <label class="underlay-toggle"><input id="underlay-toggle" type="checkbox" role="switch" checked><span>План квартиры</span></label>
+          <label class="underlay-range" for="underlay-opacity"><span>Насыщенность комнат</span><input id="underlay-opacity" type="range" min="20" max="80" value="42"><output id="underlay-value" for="underlay-opacity">42 %</output></label>
+          <label class="map-orientation"><span>Ориентация</span><select id="map-orientation"><option value="plan">План квартиры</option><option value="robot">Карта робота</option></select></label>
+          <p id="underlay-status" class="muted" role="status" hidden></p>
+          <details id="underlay-adjust" class="underlay-adjust">
+            <summary>Подогнать план</summary>
+            <p class="muted field-hint">Сохраняется только положение фона. X вправо, Y вверх. Положительный угол поворачивает план по часовой стрелке.</p>
+            <p id="alignment-note" class="muted field-hint" hidden></p>
+            <div class="form-grid alignment-grid">
+              <label>Сдвиг X<input id="align-x" type="number" value="0" min="-5000" max="5000" step="10"></label>
+              <label>Сдвиг Y<input id="align-y" type="number" value="0" min="-5000" max="5000" step="10"></label>
+              <label>Поворот, °<input id="align-angle" type="number" value="0" min="-20" max="20" step="0.2"></label>
+              <label>Масштаб, %<input id="align-scale" type="number" value="100" min="75" max="125" step="0.5"></label>
+            </div>
+            <div class="alignment-actions">
+              <button type="button" id="alignment-reset" disabled>Сбросить</button>
+              <button type="button" id="alignment-save" class="primary" disabled>Сохранить фон</button>
+            </div>
+            <p id="alignment-result" class="muted field-hint" role="status" hidden></p>
+          </details>
+        </div>
+        <div class="live-map-status">
+          <p id="live-position" role="status" hidden></p>
+          <time id="live-frame-time" class="muted" hidden></time>
+        </div>
+        <div id="map" class="map" aria-describedby="map-hint live-position">
+          <p class="muted">Карта пока недоступна</p>
+          <span id="robot-marker" class="robot-marker" aria-hidden="true" hidden></span>
+          <div id="zone-measure" class="zone-measure" hidden aria-hidden="true">
+            <strong id="zone-dimensions"></strong><span id="zone-floor"></span><span id="zone-warning"></span>
+          </div>
+        </div>
+        <div id="map-legend" class="map-legend" aria-label="Обозначения карты"></div>
+        <div id="live-coverage-control" class="coverage-control" hidden>
+          <label class="underlay-toggle"><input id="live-coverage-switch" type="checkbox" role="switch" aria-describedby="live-coverage-note" checked><span>Убранный пол</span></label>
+          <p id="live-coverage-note" class="muted" role="status"></p>
+        </div>
+        <div id="room-list" class="room-list" role="group" aria-label="Комнаты на карте"></div>
+      </section>
+
+      <section class="card job-card" aria-labelledby="job-title">
+        <header class="section-heading job-heading"><h2 id="job-title">Задание уборки</h2><p id="command-state" class="muted">Просмотр</p></header>
+        <div id="cleaning-mode" hidden>
+          <p id="cleaning-mode-readonly" class="field-hint" hidden></p>
+          <div id="cleaning-mode-options"></div>
+          <p id="cleaning-mode-result" class="job-result" role="status" hidden></p>
+        </div>
+        <form id="job-form">
+          <fieldset class="target-selector">
+            <legend>Что убрать</legend>
+            <div class="segmented">
+              <label><input type="radio" name="target" value="all" checked><span>Всё</span></label>
+              <label><input type="radio" name="target" value="rooms"><span>Комнаты</span></label>
+              <label><input type="radio" name="target" value="zone"><span>Зона</span></label>
+            </div>
+          </fieldset>
+          <fieldset id="zone-fields" hidden>
+            <legend>Координаты зоны</legend>
+            <p class="muted field-hint">X растёт вправо, Y вверх. Укажите противоположные углы.</p>
+            <div class="form-grid coords">
+              <label>X₁<input id="zone-x1" type="number" step="1"></label>
+              <label>Y₁<input id="zone-y1" type="number" step="1"></label>
+              <label>X₂<input id="zone-x2" type="number" step="1"></label>
+              <label>Y₂<input id="zone-y2" type="number" step="1"></label>
+            </div>
+            <p id="zone-measure-summary" class="muted field-hint zone-measure-summary" aria-live="polite" hidden></p>
+          </fieldset>
+          <fieldset id="tuning" hidden>
+            <legend>Параметры уборки</legend>
+            <div class="form-grid tuning">
+              <label>Всасывание<select id="suction"><option value="">Как у робота</option><option value="0">0 · тихое</option><option value="1">1 · обычное</option><option value="2">2 · сильное</option><option value="3">3 · максимальное</option></select></label>
+              <label>Подача воды<select id="water"><option value="">Как у робота</option><option value="1">1 · низкая</option><option value="2">2 · средняя</option><option value="3">3 · высокая</option></select></label>
+              <label>Проходы<select id="repeats"><option value="1">1</option><option value="2">2</option><option value="3">3</option></select></label>
+            </div>
+            <p class="muted field-hint">Это параметры задания. Текущие параметры робота приведены ниже, если получены от него.</p>
+          </fieldset>
+          <p id="target-summary" class="muted target-summary" aria-live="polite">Вся доступная площадь</p>
+          <button id="submit-job" type="submit" class="primary" disabled>Проверить задание</button>
+          <p id="submit-hint" class="muted field-hint">Робот должен быть на связи.</p>
+        </form>
+        <div id="motion-controls" class="motion-controls" hidden aria-label="Управление уборкой">
+          <button type="button" data-action="pause">Пауза</button>
+          <button type="button" data-action="resume">Продолжить</button>
+          <button type="button" data-action="stop">Остановить</button>
+          <button type="button" data-action="dock">На базу</button>
+        </div>
+        <div id="job-result" class="job-result" role="status" hidden></div>
+        <button id="forget-request" class="forget-request" type="button" hidden>Сбросить ожидающий запрос</button>
+        <p id="last-job" class="last-job muted" hidden></p>
+      </section>
+    </div>
+
+    <div class="detail-area">
+      <details class="card detail-card">
+        <summary>Текущие настройки</summary>
+        <dl id="settings" class="detail-content records"></dl>
+        <div id="preferences" class="detail-content" hidden>
+          <p id="preference-hint" class="muted field-hint"></p>
+          <div id="preference-list"></div>
+          <p id="preference-result" class="job-result" role="status" hidden></p>
+        </div>
+      </details>
+      <details id="history-section" class="card detail-card" open>
+        <summary>История уборок</summary>
+        <div id="history" class="detail-content">
+          <div id="history-toolbar" class="history-toolbar" hidden>
+            <div id="history-total" class="history-total muted" aria-live="polite"></div>
+            <label class="history-filter"><span>Результат</span><select id="history-filter" aria-label="Результат уборок"></select></label>
+          </div>
+          <div id="history-list"><p class="muted">Данные ещё не получены.</p></div>
+        </div>
+      </details>
+      <details class="card detail-card">
+        <summary>Ресурс и показатели</summary>
+        <dl id="metrics" class="detail-content records"></dl>
+      </details>
+      <details id="camera-section" class="card detail-card" hidden>
+        <summary>Камера пылесоса</summary>
+        <div class="detail-content">
+          <dl id="camera-values" class="records"></dl>
+          <p id="camera-note" class="muted field-hint" hidden></p>
+          <p class="muted field-hint">Для просмотра видео откройте Dreamehome, выберите пылесос и откройте раздел камеры.</p>
+          <a class="camera-guide" href="https://support.dreametech.com/hc/en-us/articles/10385305465231-Unlock-Your-Home-s-Eyes-with-Dreamehome-App-A-Simple-Guide-to-Camera-Monitoring" target="_blank" rel="noopener noreferrer">Инструкция Dreame</a>
+        </div>
+      </details>
+    </div>
+  </main>
+
+  <dialog id="confirmation" aria-labelledby="confirmation-title">
+    <form method="dialog">
+      <h2 id="confirmation-title">Подтвердите команду</h2>
+      <p id="confirmation-message"></p>
+      <div class="dialog-actions"><button value="cancel" autofocus>Отмена</button><button id="confirmation-accept" class="primary" value="send">Подтвердить</button></div>
+    </form>
+  </dialog>
+  <dialog id="history-dialog" class="history-dialog" aria-labelledby="history-title" aria-describedby="history-time">
+    <header class="history-header">
+      <div><h2 id="history-title">Карта уборки</h2><p id="history-time" class="muted"></p></div>
+      <button id="history-close" type="button" class="history-close" aria-label="Закрыть запись" autofocus>×</button>
+    </header>
+    <div class="history-body">
+      <div class="history-overview">
+        <div class="history-record">
+          <dl class="history-facts">
+            <div><dt>Площадь</dt><dd id="history-area">—</dd></div>
+            <div><dt>Время</dt><dd id="history-duration">—</dd></div>
+            <div><dt>Результат</dt><dd id="history-status">—</dd></div>
+          </dl>
+          <p id="history-run-details" class="history-run-details muted" hidden></p>
+          <p id="history-map-layers" class="history-run-details muted"></p>
+        </div>
+        <div class="history-map-column">
+          <div id="history-map-tools" class="history-map-tools" hidden>
+            <div class="history-layer-toggles">
+              <label id="history-pins-choice" class="underlay-toggle" hidden><input id="history-show-pins" type="checkbox" role="switch" checked><span id="history-pins-label">Метки</span></label>
+              <label id="history-coverage-choice" class="underlay-toggle" hidden><input id="history-coverage-switch" type="checkbox" role="switch" aria-describedby="history-map-layers" checked><span>Убранный пол</span></label>
+            </div>
+            <div class="history-zoom" aria-label="Масштаб карты">
+              <button id="history-zoom-out" type="button" aria-label="Уменьшить карту">−</button><output id="history-zoom-value">100 %</output><button id="history-zoom-in" type="button" aria-label="Приблизить карту">+</button>
+            </div>
+          </div>
+          <div id="history-map" class="history-map" role="region" aria-label="Карта уборки. Для прокрутки увеличьте масштаб" tabindex="0" hidden>
+            <div id="history-map-layer" class="history-map-layer"></div>
+          </div>
+          <div id="history-map-message" class="history-map-message" role="status"></div>
+          <button id="history-map-retry" class="history-retry" type="button" hidden>Повторить загрузку карты</button>
+        </div>
+        <div id="history-replay" class="history-replay" hidden>
+          <div class="history-replay-controls">
+            <button id="history-play" type="button">Воспроизвести</button>
+            <input id="history-scrub" type="range" min="0" value="0" aria-label="Точка записанного маршрута">
+            <output id="history-replay-step" for="history-scrub"></output>
+          </div>
+          <p id="history-replay-note" class="muted"></p>
+        </div>
+      </div>
+      <section id="history-obstacles" class="history-obstacles" aria-labelledby="history-obstacles-title" hidden>
+        <h3 id="history-obstacles-title">Препятствия</h3>
+        <ul id="history-obstacle-list" class="history-obstacle-list"></ul>
+        <div id="history-photo-panel" class="history-photo-panel" hidden>
+          <strong id="history-photo-title"></strong>
+          <p id="history-photo-message" class="muted" role="status" hidden></p>
+          <div id="history-photo"></div>
+        </div>
+      </section>
+    </div>
+    <footer class="history-nav" aria-label="Соседние уборки">
+      <button id="history-prev" type="button">Раньше</button>
+      <span id="history-nav-count" class="muted"></span>
+      <button id="history-next" type="button">Позже</button>
+    </footer>
+  </dialog>
+</body>
+</html>

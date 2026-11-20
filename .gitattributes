@@ -1,0 +1,5 @@
+* text=auto
+*.sh text eol=lf
+packaging/* text eol=lf
+*.py text eol=lf
+*.deb binary

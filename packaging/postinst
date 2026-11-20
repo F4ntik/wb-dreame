@@ -1,0 +1,45 @@
+#!/bin/sh
+set -eu
+[ "$1" = configure ] || exit 0
+r=${DPKG_ROOT:-}
+d="$r/mnt/data/etc/wb-mqtt-dreame"
+[ -d "$r/mnt/data/etc" ] || { echo "Persistent WB /mnt/data/etc is unavailable" >&2; exit 1; }
+# Respect a separately configured data mount, including when it failed on boot.
+if [ -z "$r" ] && findmnt --fstab -rn --mountpoint /mnt/data >/dev/null && ! mountpoint -q /mnt/data; then
+    echo "WB data partition is not mounted" >&2; exit 1
+fi
+[ ! -L "$d" ] && [ ! -L "$d/state" ] || exit 1
+install -d -m 0755 "$d"
+if [ ! -d "$d/state" ]; then install -d -m 0700 "$d/state"; fi
+# Install complete initial files without overwriting existing user values.
+seed() {
+    [ ! -L "$2" ] || return 1
+    [ ! -e "$2" ] || return 0
+    t=$(mktemp "$d/.seed.XXXXXX")
+    install -m "$3" "$1" "$t"
+    ln "$t" "$2" || { rm -f "$t"; return 1; }
+    rm -f "$t"
+}
+seed "$r/usr/share/wb-mqtt-dreame/default.json" "$d/config.json" 0644
+seed "$r/usr/share/wb-mqtt-dreame/empty.json" "$d/account.json" 0600
+if [ "${2:-}" = '0.1.0~preview17' ]; then
+    seed "$r/usr/share/wb-mqtt-dreame/empty.json" "$d/state/mqtt-legacy-preview17" 0600
+fi
+systemd-sysusers --root="${r:-/}" "$r/usr/lib/sysusers.d/wb-mqtt-dreame.conf"
+unit=wb-mqtt-dreame.service
+deb-systemd-helper unmask "$unit" >/dev/null
+if deb-systemd-helper --quiet was-enabled "$unit"; then
+    deb-systemd-helper enable "$unit" >/dev/null
+else
+    deb-systemd-helper update-state "$unit" >/dev/null
+fi
+if [ -z "$r" ] && [ -d /run/systemd/system ]; then
+    systemctl daemon-reload
+    if [ -e /var/lib/wb-homeui/nginx-gates/dreame.conf ]; then wb-homeui-gates apply; fi
+    nginx -t
+    if systemctl is-active --quiet nginx; then
+        systemctl reload nginx
+        /usr/bin/wb-dreame install-panel || echo "HomeUI registration pending: wb-dreame install-panel" >&2
+    fi
+    if [ -n "${2:-}" ]; then deb-systemd-invoke try-restart "$unit"; else deb-systemd-invoke start "$unit"; fi
+fi

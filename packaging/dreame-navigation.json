@@ -1,0 +1,9 @@
+{
+  "id": "integrations",
+  "children": [{
+    "id": "dreame-vacuum",
+    "url": "dashboards/svg/view/dreame-control",
+    "requiredRole": "admin",
+    "title": {"ru": "Пылесос", "en": "Vacuum"}
+  }]
+}

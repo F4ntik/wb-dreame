@@ -1,0 +1,25 @@
+[Unit]
+Description=Dreame L40 Ultra and L40s Pro Ultra integration
+After=network.target mosquitto.service
+RequiresMountsFor=/mnt/data/etc/wb-mqtt-dreame
+[Service]
+Type=simple
+User=wb-dreame
+Group=wb-dreame
+SupplementaryGroups=www-data
+RuntimeDirectory=wb-mqtt-dreame
+RuntimeDirectoryMode=0711
+LoadCredential=account.json:/mnt/data/etc/wb-mqtt-dreame/account.json
+ExecStartPre=+/usr/lib/wb-mqtt-dreame/prepare-state
+ExecStart=/usr/bin/wb-dreame service
+Restart=on-failure
+RestartSec=20
+TimeoutStopSec=15
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/mnt/data/etc/wb-mqtt-dreame/state
+[Install]
+WantedBy=multi-user.target

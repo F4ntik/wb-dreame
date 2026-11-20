@@ -1,0 +1,14 @@
+{
+  "$schema": "http://json-schema.org/draft-04/schema#",
+  "title": "Пылесос Dreame",
+  "description": "Параметры драйвера Dreamehome. Привязка аккаунта выполняется на контроллере через wb-dreame setup.",
+  "type": "object",
+  "configFile": {"path": "/mnt/data/etc/wb-mqtt-dreame/config.json", "service": "wb-mqtt-dreame"},
+  "required": ["poll_seconds", "allow_commands", "profiles"],
+  "additionalProperties": false,
+  "properties": {
+    "poll_seconds": {"type": "integer", "title": "Интервал опроса, с", "default": 30, "minimum": 15, "maximum": 300, "propertyOrder": 1},
+    "allow_commands": {"type": "boolean", "title": "Разрешить запуск и команды движения с панели", "description": "При выключенном флаге можно смотреть карту, выбирать помещения и проверять задания.", "default": false, "format": "checkbox", "propertyOrder": 2},
+    "profiles": {"type": "array", "title": "Сохранённые профили", "default": [], "maxItems": 32, "items": {"type": "object"}, "options": {"hidden": true}}
+  }
+}

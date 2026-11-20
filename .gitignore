@@ -1,0 +1,15 @@
+__pycache__/
+*.py[cod]
+.venv/
+dist/
+account.json
+session.json
+*.tar.gz
+*.key
+.env
+.playwright-mcp/
+underlay.jpg
+underlay.json
+underlay-alignment.json
+jobs.sqlite3*
+mqtt-owner.json
