@@ -7,6 +7,16 @@ const map = mapInfo({ id: 7, revision: 'r2', bounds: [-300, -100, 500, 650],
   rooms: { 1: 'Кухня', 3: 'Холл', wrong: 'Не комната' }, svg: '<svg/>' });
 const automatic = { suction: '', water: '', repeats: '1' };
 
+test('room aliases supply labels without changing the ordered request or saved map', () => {
+  const key = 'a'.repeat(64);
+  const named = mapInfo(map, { 1: { key, alias: 'Моя кухня' }, 9: { key, alias: 'Чужая комната' } });
+  assert.equal(named.rooms[1], 'Моя кухня');
+  assert.equal(map.rooms[1], named.roomNames[0].original);
+  assert.equal(named.roomNames.length, 1);
+  const selection = { kind: 'rooms', rooms: new Set([3, 1]) };
+  assert.deepEqual(jobRequest('start', named, selection, automatic), jobRequest('start', map, selection, automatic));
+});
+
 test('SVG coordinates preserve native X, reverse Y and clamp only after drag begins', () => {
   assert.deepEqual(pointOnMap(-290, -625, map.bounds), [-290, 625]);
   assert.deepEqual(pointOnMap(500, 100, map.bounds), [500, -100]);

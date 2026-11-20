@@ -115,11 +115,11 @@ def interactive_map(saved, previous=None):
     bounds = [dim.left, dim.top, dim.left + dim.width * step, dim.top + dim.height * step]
     _, _, _, segments, max_segment = snapshot
     rooms = {str(k): label or f"Комната {k}" for k, (label, shown) in segments.items() if shown}
-    identities = [(k, getattr(v, "unique_id", None)) for k, v in sorted((saved.segments or {}).copy().items())]
+    identities = {k: getattr(v, "unique_id", None) for k, v in sorted((saved.segments or {}).copy().items())}
     pixels = saved.pixel_type.T[::-1, :].copy()
     digest = sha256(pixels.tobytes())
     exclusions = read_overlays(saved, None)
-    digest.update(json.dumps([saved.map_id, bounds, step, pixels.shape, rooms, identities, saved.rotation,
+    digest.update(json.dumps([saved.map_id, bounds, step, pixels.shape, rooms, list(identities.items()), saved.rotation,
                               snapshot[2], exclusions], sort_keys=True).encode())
     revision = digest.hexdigest()
     if previous and previous["revision"] == revision:
@@ -142,6 +142,21 @@ def interactive_map(saved, previous=None):
     # Dreame stores distance in millimetres. Use cell intersections for the floor inside a zone.
     native = pixels[::-1, :]
     labels = np.where((native > 100) & (native <= 100 + max_segment), native - 100, native)
+    room_keys = {}
+    for room in rooms:
+        segment = int(room)
+        cells = labels == segment
+        ys, xs = np.nonzero(cells)
+        if not xs.size:
+            continue
+        x, y = int(xs.min()), int(ys.min())
+        shape = cells[y:ys.max() + 1, x:xs.max() + 1]
+        # Absolute grid coordinates keep the key stable when the map is cropped elsewhere.
+        key = [saved.map_id, segment, identities.get(segment), rooms[room], step,
+               left + x * step, bottom + y * step, shape.shape]
+        digest = sha256(json.dumps(key).encode())
+        digest.update(np.packbits(shape).tobytes())
+        room_keys[room] = digest.hexdigest()
     walkable = ((labels >= 1) & (labels <= max_segment)) | (native == 253) | (native == 254)
     for feature in exclusions:
         if feature["kind"] == "no_go":
@@ -161,7 +176,7 @@ def interactive_map(saved, previous=None):
     room_area = {key: round(np.count_nonzero(walkable & (labels == int(key))) * (step/1000)**2, 4) for key in rooms}
     return {"id": saved.map_id, "revision": revision, "bounds": bounds, "rooms": rooms, "svg": "".join(svg),
             "footprint": footprint, "units_per_metre": 1000, "floor": {"grid_size": step, "runs": runs},
-            "room_area_m2": room_area}
+            "room_area_m2": room_area, "_room_keys": room_keys}
 
 
 def _label(text, limit):

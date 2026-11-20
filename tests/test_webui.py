@@ -64,6 +64,11 @@ class GateServiceTest(unittest.TestCase):
             self.assertEqual(call("GET", "/dreame/api/history/200")[0], 404)
             bridge.web_job.assert_not_called()
             self.assertEqual(call("POST", "/dreame/api/preview", "{}", {**headers, "Origin": "http://localhost"})[0], 200)
+            bridge.web_room_name.return_value = {"status": "saved"}
+            self.assertEqual(call("POST", "/dreame/api/room-name", "{}", {**headers, "Origin": "http://other"})[0], 403)
+            bridge.web_room_name.assert_not_called()
+            self.assertEqual(call("POST", "/dreame/api/room-name", "{}", headers)[0], 200)
+            bridge.web_room_name.assert_called_once_with({})
             bridge.web_job.assert_called_once_with({}, preview=True)
 
     def test_existing_socket_path_is_left_untouched(self):

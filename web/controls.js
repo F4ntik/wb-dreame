@@ -3,17 +3,25 @@ export const underlayUrl = '/dreame/api/underlay';
 const actions = new Set(['start', 'pause', 'resume', 'stop', 'dock']);
 const roomId = /^\d{1,3}$/;
 
-export function mapInfo(map) {
+export function mapInfo(map, names = {}) {
   if (!map || !Number.isSafeInteger(map.id) || typeof map.revision !== 'string' || !map.revision ||
       !Array.isArray(map.bounds) || map.bounds.length !== 4 || !map.bounds.every(Number.isSafeInteger)) return null;
   const [left, bottom, right, top] = map.bounds;
   if (left >= right || bottom >= top || typeof map.svg !== 'string') return null;
   const rooms = Object.fromEntries(Object.entries(map.rooms || {}).filter(([key, value]) =>
     roomId.test(key) && Number(key) >= 1 && String(Number(key)) === key && typeof value === 'string'));
+  const roomNames = [];
+  for (const [id, original] of Object.entries(rooms)) {
+    const entry = names?.[id];
+    if (typeof entry?.key !== 'string' || !/^[a-f0-9]{64}$/.test(entry.key)) continue;
+    const alias = typeof entry.alias === 'string' && entry.alias ? entry.alias : null;
+    roomNames.push({ id, key: entry.key, original, alias });
+    if (alias) rooms[id] = alias;
+  }
   const units = map.units_per_metre;
   const roomAreas = Object.fromEntries(Object.entries(map.room_area_m2 || {}).filter(([key, area]) =>
     Object.hasOwn(rooms, key) && Number.isFinite(area) && area >= 0));
-  return { id: map.id, revision: map.revision, bounds: map.bounds, rooms, svg: map.svg, roomAreas,
+  return { id: map.id, revision: map.revision, bounds: map.bounds, rooms, svg: map.svg, roomAreas, roomNames,
     unitsPerMetre: Number.isFinite(units) && units > 0 ? units : null, floor: floorInfo(map.floor, map.bounds) };
 }
 

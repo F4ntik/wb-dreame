@@ -11,6 +11,7 @@ if [ "$1" = purge ]; then
         if [ -d "$d/state" ] && [ ! -L "$d/state" ]; then
             rm -f "$d/state/session.json" "$d/state/jobs.sqlite3" "$d/state/jobs.sqlite3-journal" "$d/state/underlay-alignment.json"
             rm -f "$d/state/mqtt-owner.json" "$d/state/mqtt-legacy-preview17"
+            rm -f "$d/state/room-names.json"
             rmdir "$d/state" 2>/dev/null || :
         fi
         rmdir "$d" 2>/dev/null || :

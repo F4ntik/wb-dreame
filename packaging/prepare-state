@@ -4,7 +4,7 @@ cd /mnt/data/etc/wb-mqtt-dreame
 test ! -L state
 chown wb-dreame:wb-dreame state
 chmod 0700 state
-for file in state/session.json state/jobs.sqlite3 state/jobs.sqlite3-journal state/underlay-alignment.json state/mqtt-owner.json state/mqtt-legacy-preview17; do
+for file in state/session.json state/jobs.sqlite3 state/jobs.sqlite3-journal state/underlay-alignment.json state/mqtt-owner.json state/mqtt-legacy-preview17 state/room-names.json; do
     if [ -f "$file" ] && [ ! -L "$file" ]; then chown -h wb-dreame:wb-dreame "$file"; fi
 done
 for file in underlay.json underlay.jpg; do
