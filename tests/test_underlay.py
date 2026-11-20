@@ -8,6 +8,26 @@ from underlay import Underlay
 
 
 class CalibratedMapTest(unittest.TestCase):
+    def test_small_outline_changes_survive_restart_without_drifting(self):
+        with TemporaryDirectory() as folder:
+            root = Path(folder)
+            (root / "state").mkdir()
+            asset = Underlay(root)
+            original = bytes([255]) * 25
+            base = {"bounds": [0, 0, 20, 10], "id": 7, "floor": {"grid_size": 1}}
+            def plan(bits):
+                return dict(base, footprint=hashlib.sha256(bits).hexdigest(), _footprint_bits=bits)
+            asset.spec = dict(base, footprint=plan(original)["footprint"])
+            self.assertTrue(asset._matches(plan(original)))
+            recovered = Underlay(root)
+            recovered.spec = asset.spec
+            minor = plan(bytes([252]) + original[1:])
+            self.assertTrue(recovered._matches(minor))
+            self.assertFalse(recovered._matches(plan(bytes([248]) + original[1:])))
+            self.assertFalse(recovered._matches(dict(minor, id=8)))
+            self.assertFalse(recovered._matches(dict(minor, bounds=[1, 0, 21, 10])))
+            self.assertFalse(recovered._matches(dict(minor, floor={"grid_size": 2})))
+
     def test_room_renumbering_preserves_drawing_new_footprint_hides_it(self):
         with TemporaryDirectory() as folder:
             asset = Underlay(Path(folder))

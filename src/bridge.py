@@ -126,7 +126,7 @@ class Bridge:
             last = {**last, "message": message}
         names = self.room_names.for_map(plan)
         if plan:
-            plan = {key: value for key, value in plan.items() if key != "_room_keys"}
+            plan = {key: value for key, value in plan.items() if key not in ("_room_keys", "_footprint_bits")}
         return {**latest, "model": self.title, "allow_commands": self.commands_enabled(),
                 "map": plan, "overlays": overlays, "live_frame_at_ms": frame_time, "live_room_id": room_id,
                 "last_job": last, "underlay": drawing, "room_names": names}

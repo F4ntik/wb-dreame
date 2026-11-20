@@ -18,9 +18,43 @@ class Underlay:
         self.meta = directory / "underlay.json"
         self.image = directory / "underlay.jpg"
         self.alignment = directory / "state" / "underlay-alignment.json"
+        self.reference_path = directory / "state" / "underlay-footprint.json"
+        self.reference = (None, b"")
+        try:
+            if self.reference_path.stat().st_size <= 66_000:
+                saved = json.loads(self.reference_path.read_bytes())
+                bits = bytes.fromhex(saved["bits"])
+                key = (hashlib.sha256(bits).hexdigest(), saved["map_id"], saved["step"])
+                self.reference = key, bits
+        except (OSError, ValueError, TypeError, KeyError, RecursionError):
+            pass
         self.lock = Lock()
         self.stamp = None
         self.data = self.spec = None
+
+    def _matches(self, plan):
+        if self.spec["bounds"] != plan["bounds"]:
+            return False
+        original = self.spec["footprint"]
+        exact = original == plan["footprint"]
+        bits = plan.get("_footprint_bits")
+        if not bits:
+            return exact
+        key = (original, plan["id"], plan["floor"]["grid_size"])
+        reference_key, reference_bits = self.reference
+        if exact:
+            if key != reference_key:
+                self.reference = key, bits
+                try:
+                    atomic(self.reference_path, {"map_id": key[1], "step": key[2], "bits": bits.hex()})
+                except OSError:
+                    pass  # The exact calibrated outline is usable even with read-only storage.
+            return True
+        if key != reference_key or len(bits) != len(reference_bits):
+            return False
+        # Compare with the calibrated outline, never with the previous refresh.
+        a, b = int.from_bytes(bits, "big"), int.from_bytes(reference_bits, "big")
+        return (a ^ b).bit_count() * 100 <= (a | b).bit_count()
 
     def for_map(self, plan):
         if not plan:
@@ -40,7 +74,7 @@ class Underlay:
                         and hashlib.sha256(raw).hexdigest() == spec["image_sha256"]):
                     return None
                 self.spec, self.data, self.stamp = spec, raw, stamp
-            if self.spec["bounds"] != plan["bounds"] or self.spec["footprint"] != plan["footprint"]:
+            if not self._matches(plan):
                 return None
             result = {k: self.spec[k] for k in ("matrix", "width", "height")} | {"url": "/dreame/api/underlay",
                       "note": self.spec.get("note", "Границы для уборки берутся с карты Dreame.")}

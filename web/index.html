@@ -65,18 +65,6 @@
           <p id="live-coverage-note" class="muted" role="status"></p>
         </div>
         <div id="room-list" class="room-list" role="group" aria-label="Комнаты на карте"></div>
-        <details id="room-names" hidden>
-          <summary>Названия комнат</summary>
-          <form class="form-grid">
-            <label>Имя в Dreamehome<select required><option value="">Выберите комнату</option></select></label>
-            <label>Имя в панели WB<input type="text" maxlength="48" required disabled></label>
-            <div class="room-name-actions">
-              <button type="submit" class="primary" disabled>Сохранить</button>
-              <button type="button" disabled>Вернуть имя Dreamehome</button>
-            </div>
-            <p class="job-result" role="status" hidden></p>
-          </form>
-        </details>
       </section>
 
       <section class="card job-card" aria-labelledby="job-title">
@@ -135,6 +123,18 @@
     <div class="detail-area">
       <details class="card detail-card">
         <summary>Текущие настройки</summary>
+        <details id="room-names" class="detail-content" hidden>
+          <summary>Названия комнат</summary>
+          <form class="form-grid">
+            <label>Имя в Dreamehome<select required><option value="">Выберите комнату</option></select></label>
+            <label>Имя в панели WB<input type="text" maxlength="48" required disabled></label>
+            <div class="room-name-actions">
+              <button type="submit" class="primary" disabled>Сохранить</button>
+              <button type="button" disabled>Вернуть имя Dreamehome</button>
+            </div>
+            <p class="job-result" role="status" hidden></p>
+          </form>
+        </details>
         <dl id="settings" class="detail-content records"></dl>
         <div id="preferences" class="detail-content" hidden>
           <p id="preference-hint" class="muted field-hint"></p>

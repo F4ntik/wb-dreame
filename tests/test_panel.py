@@ -42,6 +42,7 @@ class PanelTest(unittest.TestCase):
             bridge.snapshot(sample)
             view = bridge.web_state()
             self.assertNotIn("_live_plan", view)
+            self.assertNotIn("_footprint_bits", view["map"])
             self.assertEqual((view["live_room_id"], view["live_frame_at_ms"]), (1, frame.timestamp_ms))
             self.assertEqual([f["kind"] for f in view["overlays"]], ["robot"])
             frame.docked = True

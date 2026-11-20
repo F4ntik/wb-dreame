@@ -138,7 +138,8 @@ def interactive_map(saved, previous=None):
     if station and left <= station.x <= right and bottom <= station.y <= top:
         svg.append(f'<circle cx="{station.x}" cy="{-station.y}" r="{step*2}" fill="#164B50"/>')
     svg.append('</svg>')
-    footprint = sha256(np.packbits(pixels != 0).tobytes()).hexdigest()
+    footprint_bits = np.packbits(pixels != 0).tobytes()
+    footprint = sha256(footprint_bits).hexdigest()
     # Dreame stores distance in millimetres. Use cell intersections for the floor inside a zone.
     native = pixels[::-1, :]
     labels = np.where((native > 100) & (native <= 100 + max_segment), native - 100, native)
@@ -175,7 +176,7 @@ def interactive_map(saved, previous=None):
                     for start, end in zip(changes[::2], changes[1::2]))
     room_area = {key: round(np.count_nonzero(walkable & (labels == int(key))) * (step/1000)**2, 4) for key in rooms}
     return {"id": saved.map_id, "revision": revision, "bounds": bounds, "rooms": rooms, "svg": "".join(svg),
-            "footprint": footprint, "units_per_metre": 1000, "floor": {"grid_size": step, "runs": runs},
+            "footprint": footprint, "_footprint_bits": footprint_bits, "units_per_metre": 1000, "floor": {"grid_size": step, "runs": runs},
             "room_area_m2": room_area, "_room_keys": room_keys}
 
 

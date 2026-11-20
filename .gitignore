@@ -11,6 +11,7 @@ session.json
 underlay.jpg
 underlay.json
 underlay-alignment.json
+underlay-footprint.json
 jobs.sqlite3*
 mqtt-owner.json
 room-names.json
