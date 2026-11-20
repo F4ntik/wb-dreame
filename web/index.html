@@ -6,6 +6,7 @@
   <title>Пылесос Dreame</title>
   <link rel="stylesheet" href="./style.css">
   <script type="module" src="./app.js"></script>
+  <script type="module" src="./schedules.js"></script>
 </head>
 <body>
   <main class="shell">
@@ -139,6 +140,33 @@
           <p id="preference-hint" class="muted field-hint"></p>
           <div id="preference-list"></div>
           <p id="preference-result" class="job-result" role="status" hidden></p>
+        </div>
+      </details>
+      <details id="schedules" class="card detail-card">
+        <summary>Расписания</summary>
+        <div class="detail-content">
+          <button id="schedules-refresh" type="button">Прочитать расписания</button>
+          <p id="schedules-result" class="job-result" role="status" hidden></p>
+          <section id="schedules-charging" hidden>
+            <h3>Зарядка в непиковые часы</h3>
+            <p id="schedules-charging-note" class="muted field-hint"></p>
+            <form id="schedules-charging-form" hidden>
+              <fieldset>
+                <legend>Интервал по времени пылесоса</legend>
+                <p><label><input type="checkbox" name="enabled"> Использовать расписание зарядки</label></p>
+                <p>
+                  <label>Начало <input type="time" name="start" required></label>
+                  <label>Конец <input type="time" name="end" required></label>
+                </p>
+                <button type="submit" disabled>Сохранить интервал</button>
+              </fieldset>
+            </form>
+          </section>
+          <section id="schedules-cleaning" hidden>
+            <h3>Расписание уборок</h3>
+            <p id="schedules-cleaning-note" class="muted field-hint"></p>
+            <ul id="schedules-cleaning-list" hidden></ul>
+          </section>
         </div>
       </details>
       <details id="history-section" class="card detail-card" open>

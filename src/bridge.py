@@ -16,6 +16,7 @@ from preferences import apply_preference
 from panel import interactive_map, map_snapshot, render_map_frame
 from robot import TRACKING_STATES, Robot, check_writes_with
 from room_names import RoomNames
+from schedules import read_schedules, save_charging_schedule
 from underlay import Underlay
 from webui import WebConflict, start_ui
 
@@ -230,6 +231,22 @@ class Bridge:
                 result = apply_preference(self.cloud, request, allowed=self.commands_enabled())
             self.refresh.set()
             return {**result, "status": "confirmed", "message": "Значение подтверждено роботом"}
+        finally:
+            self.io_lock.release()
+
+    def web_schedules(self, request=None):
+        if request is not None and not self.commands_enabled():
+            raise WebConflict("Изменение настроек выключено в конфигурации драйвера")
+        if not self.io_lock.acquire(blocking=False):
+            raise WebConflict("Драйвер опрашивает пылесос. Повторите через несколько секунд.")
+        try:
+            if not self.cloud or not self.latest["online"] or self.halt.is_set():
+                raise WebConflict("Нет связи с Dreamehome. Повторите после восстановления связи.")
+            if request is None:
+                return {**read_schedules(self.cloud), "allow_commands": self.commands_enabled()}
+            with check_writes_with(self.commands_enabled):
+                charging = save_charging_schedule(self.cloud, request)
+            return {"charging": charging, "message": "Интервал зарядки подтверждён роботом"}
         finally:
             self.io_lock.release()
 

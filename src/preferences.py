@@ -49,10 +49,16 @@ def property_write_permitted(method, params):
             or (prop["did"], prop["siid"], prop["piid"], prop["value"]) != expected):
         return False
     if type(prop["value"]) is str:
-        mapping = PROPERTY_MAPPING[P.AUTO_SWITCH_SETTINGS]
-        if (prop["siid"] != mapping["siid"] or prop["piid"] != mapping["piid"]
-                or prop["value"] not in AUTO_SWITCH_WRITES):
-            return False
+        charging = PROPERTY_MAPPING[P.OFF_PEAK_CHARGING]
+        if (prop["siid"], prop["piid"]) == (charging["siid"], charging["piid"]):
+            from schedules import charging_wire_valid
+            if not charging_wire_valid(prop["value"]):
+                return False
+        else:
+            mapping = PROPERTY_MAPPING[P.AUTO_SWITCH_SETTINGS]
+            if (prop["siid"] != mapping["siid"] or prop["piid"] != mapping["piid"]
+                    or prop["value"] not in AUTO_SWITCH_WRITES):
+                return False
     WRITE.set(None)
     return True
 

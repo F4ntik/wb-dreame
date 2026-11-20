@@ -70,6 +70,15 @@ class GateServiceTest(unittest.TestCase):
             self.assertEqual(call("POST", "/dreame/api/room-name", "{}", headers)[0], 200)
             bridge.web_room_name.assert_called_once_with({})
             bridge.web_job.assert_called_once_with({}, preview=True)
+            bridge.web_schedules.return_value = {"charging": {"enabled": True}}
+            schedule_path = "/dreame/api/schedules"
+            self.assertEqual(json.loads(call("GET", schedule_path)[1]), {"charging": {"enabled": True}})
+            self.assertEqual(call("POST", schedule_path, "{}", {"Content-Type": "application/json"})[0], 403)
+            self.assertEqual(call("POST", schedule_path, "{}", {**headers, "Origin": "http://another-host"})[0], 403)
+            bridge.web_schedules.assert_called_once_with()
+            payload = {"enabled": False}
+            self.assertEqual(call("POST", schedule_path, json.dumps(payload), headers)[0], 200)
+            bridge.web_schedules.assert_called_with(payload)
 
     def test_existing_socket_path_is_left_untouched(self):
         with TemporaryDirectory() as folder:
