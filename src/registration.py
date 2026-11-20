@@ -1,6 +1,7 @@
 """Register the embedded control page through the WB dashboard API."""
 import json
 import uuid
+from pathlib import Path
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
@@ -26,6 +27,7 @@ def register():
         with urlopen(url + "/" + panel["id"] + "/svg", timeout=5) as response:
             if b'src="/dreame/"' not in response.read():
                 raise Refused("ID dreame-control занят пользовательской панелью.")
+        retire_overview(index["dashboards"])
         return "Панель Dreame уже зарегистрирована"
     body = json.dumps(panel, ensure_ascii=False).encode()
     req = Request(url + "/dreame-create-" + uuid.uuid4().hex, data=body, method="PUT",
@@ -36,7 +38,25 @@ def register():
                 raise Refused("Web UI не подтвердил создание панели")
     except HTTPError as exc:
         raise Refused(f"Web UI отклонил регистрацию панели (HTTP {exc.code})") from None
+    retire_overview(index["dashboards"])
     return "Панель Dreame добавлена в веб-интерфейс"
+
+
+def retire_overview(dashboards):
+    if any(row.get("id") == "dreame-vacuum" for row in dashboards):
+        from panel import make_panel
+        remove_if_original(make_panel())
+
+
+def remove_if_original(panel):
+    # HomeUI versions can omit the SVG body in the dashboard index.
+    stored = json.loads(Path("/etc/wb-webui.conf").read_bytes())
+    entry = next((d for d in stored["dashboards"] if d.get("id") == panel["id"]), None)
+    if entry != panel:
+        return "Изменённая пользователем панель сохранена"
+    url = "http://127.0.0.1/api/dashboards/" + panel["id"]
+    with urlopen(Request(url, method="DELETE"), timeout=5):
+        return "Штатная панель Dreame снята"
 
 
 def unregister():
@@ -46,11 +66,4 @@ def unregister():
         entry = next((d for d in json.load(response)["dashboards"] if d.get("id") == panel["id"]), None)
     if entry is None:
         return "Панель уже снята"
-    # The index can omit the SVG body. Read the actual file and preserve any owner edits.
-    from pathlib import Path
-    stored = json.loads(Path("/etc/wb-webui.conf").read_bytes())
-    entry = next((d for d in stored["dashboards"] if d.get("id") == panel["id"]), None)
-    if entry != panel:
-        return "Изменённая пользователем панель сохранена"
-    with urlopen(Request(url + "/" + panel["id"], method="DELETE"), timeout=5):
-        return "Штатная панель Dreame снята"
+    return remove_if_original(panel)

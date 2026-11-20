@@ -99,7 +99,7 @@ let preferenceBusy = null;
 let cleanGenius = null;
 let awaitingMode = null;
 
-byId('back-link').href = `${location.origin}/#/dashboards/svg/view/dreame-vacuum`;
+byId('back-link').href = `${location.origin}/#/dashboards/svg/view/dreame-control`;
 byId('back-link').hidden = window.self !== window.top;
 
 function label(node, value) {
@@ -132,9 +132,7 @@ function stateLabel(value) {
 
 function dockStatus(data) {
   if (data.online !== true) return '—';
-  if (['CHARGING', 'CHARGING_COMPLETED', 'SMART_CHARGING'].includes(data.state)) return 'На базе';
-  if (['RETURNING', 'RETURNING_TO_WASH', 'RETURNING_AUTO_EMPTY'].includes(data.state)) return 'Возвращается';
-  return 'Не подтверждена';
+  return ({ docked: 'На базе', returning: 'Возвращается', away: 'Вне базы' })[data.dock_status] || 'Нет данных о положении';
 }
 
 function readZone() {

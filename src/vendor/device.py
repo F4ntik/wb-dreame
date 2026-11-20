@@ -1,6 +1,7 @@
 from __future__ import annotations
 import logging
 import time
+from threading import Lock
 import json
 import re
 import copy
@@ -360,6 +361,8 @@ class DreameVacuumDevice:
         self._last_change: float = 0  # Last property change time
         self._last_active: float = 0  # Last active state change time
         self._last_update_failed: float = None  # Last update failed time
+        self._next_history_refresh = 0.0
+        self._history_refresh_lock = Lock()
         self._cleaning_history_update: float = 0  # Cleaning history update time
         self._update_fail_count: int = 0  # Update failed counter
         self._draining_complete_time: int = None
@@ -1885,6 +1888,46 @@ class DreameVacuumDevice:
         ):
             self._map_manager.editor.refresh_map()
 
+    def refresh_cleaning_records(self, *, force=False) -> bool:
+        """Reconcile the last 30 cloud events even if the task-end notification was missed."""
+        if not self._history_refresh_lock.acquire(blocking=False):
+            return False
+        try:
+            now = time.monotonic()
+            if not force and now < self._next_history_refresh:
+                return False
+            self._next_history_refresh = now + 60
+            result = self._protocol.cloud.get_device_event(DIID(DreameVacuumProperty.STATUS, self.property_mapping), 50)
+            if not isinstance(result, list):
+                return False
+            records = []
+            for event in result:
+                try:
+                    history = CleaningHistory(json.loads(event["history"] if "history" in event else event["value"]), self.property_mapping)
+                except (KeyError, TypeError, ValueError, IndexError, OverflowError, OSError):
+                    continue
+                if history.date is None:
+                    continue
+                if history.cleanup_method == CleanupMethod.CUSTOMIZED_CLEANING and self.capability.cleangenius:
+                    history.cleanup_method = CleanupMethod.DEFAULT_MODE
+                records.append(history)
+            if not records and result:
+                return False
+            self._next_history_refresh = now + 300
+            # Keep conflicting references for the same start time together; the archive reader rejects ambiguity.
+            dates = set(sorted({record.date for record in records}, reverse=True)[:30])
+            records = sorted((record for record in records if record.date in dates), key=lambda r: r.date, reverse=True)
+            self.status._cleaning_history = records
+            self.status._cleaning_history_attrs = None
+            if records:
+                self.status._last_cleaning_time = records[0].date.astimezone()
+            return True
+        except Exception as exc:
+            _LOGGER.warning("Could not refresh cleaning history (%s)", type(exc).__name__)
+            return False
+        finally:
+            self._history_refresh_lock.release()
+
     def _request_cleaning_history(self) -> None:
         """Get and parse the cleaning history from cloud event data and set it to memory"""
         if (
@@ -1907,7 +1950,7 @@ class DreameVacuumDevice:
                 start = None
                 max = 30
                 total = self.get_property(DreameVacuumProperty.CLEANING_COUNT)
-                if total > 0:
+                if total is not None and total > 0:
                     start = self.get_property(DreameVacuumProperty.FIRST_CLEANING_DATE)
 
                 if start is None:
@@ -1918,41 +1961,7 @@ class DreameVacuumDevice:
                 if total < max:
                     limit = total + max
 
-                changed = False
-                # Cleaning history is generated from events of status property that has been sent to cloud by the device when it changed
-                result = self._protocol.cloud.get_device_event(
-                    DIID(DreameVacuumProperty.STATUS, self.property_mapping),
-                    limit,
-                    start,
-                )
-                if result:
-                    cleaning_history = []
-                    history_size = 0
-                    for data in result:
-                        history = CleaningHistory(
-                            json.loads(data["history"] if "history" in data else data["value"]),
-                            self.property_mapping,
-                        )
-                        if history_size > 0 and cleaning_history[-1].date == history.date:
-                            continue
-
-                        if history.cleanup_method == CleanupMethod.CUSTOMIZED_CLEANING and self.capability.cleangenius:
-                            history.cleanup_method = CleanupMethod.DEFAULT_MODE
-
-                        cleaning_history.append(history)
-                        history_size = history_size + 1
-                        if history_size >= max or history_size >= total:
-                            break
-
-                    if self.status._cleaning_history != cleaning_history:
-                        _LOGGER.info("Cleaning History Changed")
-                        self.status._cleaning_history = cleaning_history
-                        self.status._cleaning_history_attrs = None
-                        if cleaning_history:
-                            self.status._last_cleaning_time = cleaning_history[0].date.replace(
-                                tzinfo=datetime.now().astimezone().tzinfo
-                            )
-                        changed = True
+                changed = self.refresh_cleaning_records(force=True)
 
                 if self.capability.cruising:
                     # Cruising history is generated from events of water volume property that has been sent to cloud by the device when it changed

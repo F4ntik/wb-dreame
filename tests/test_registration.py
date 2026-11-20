@@ -5,7 +5,8 @@ from unittest.mock import patch
 from xml.etree import ElementTree
 
 from config import Refused
-from registration import embedded_panel, register
+from registration import embedded_panel, register, retire_overview
+from panel import make_panel
 
 
 class RegistrationTest(unittest.TestCase):
@@ -15,6 +16,19 @@ class RegistrationTest(unittest.TestCase):
         self.assertEqual(frame.get("src"), "/dreame/")
         self.assertFalse(panel["swipe"]["enable"])
         self.assertTrue(panel["svg_fullwidth"])
+
+    def test_legacy_dashboard_is_removed_only_for_an_exact_template(self):
+        legacy = make_panel()
+        for changed in (True, False):
+            saved = dict(legacy, name="Custom") if changed else legacy
+            with self.subTest(changed=changed), patch("pathlib.Path.read_bytes", return_value=json.dumps({"dashboards": [saved]}).encode()), patch("registration.urlopen") as rpc:
+                retire_overview([{"id": legacy["id"]}])
+                if changed:
+                    rpc.assert_not_called()
+                else:
+                    request = rpc.call_args.args[0]
+                    self.assertEqual(request.get_method(), "DELETE")
+                    self.assertTrue(request.full_url.endswith("/dreame-vacuum"))
 
     def test_existing_foreign_panel_is_not_replaced(self):
         index = json.dumps({"dashboards": [{"id": "dreame-control"}]}).encode()

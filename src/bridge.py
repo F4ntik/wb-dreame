@@ -63,7 +63,7 @@ class Bridge:
     def snapshot(self, data):
         tracking = data.get("task") in ACTIVE and data.get("state") in TRACKING_STATES
         station_pause = data.get("task") in ACTIVE and data.get("state") in {"WASHING", "WASHING_PAUSED"}
-        self.latest = {"online": True, "state": data["state"], "battery": data["battery"],
+        self.latest = {"online": True, "state": data["state"], "battery": data["battery"], "dock_status": data.get("dock_status"),
                        "map": interactive_map(data.get("saved_map"), self.latest.get("map")),
                        "tracking_active": tracking, "_live_plan": data.get("saved_map"), "_station_pause": station_pause,
                        "details": data.get("details", {}), "overlays": data.get("overlays", []), "cleangenius": data.get("cleangenius"),
@@ -259,6 +259,7 @@ class Bridge:
                             if not self.cloud:
                                 self.cloud = Robot(account, STATE)
                                 self.cloud.open()
+                            self.cloud.device.refresh_cleaning_records()
                             self.snapshot(self.cloud.observe())
                         failures = 0
                     except Exception as exc:

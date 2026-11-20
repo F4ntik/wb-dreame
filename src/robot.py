@@ -28,6 +28,18 @@ JOB_MODES = {"SWEEPING": "sweep", "MOPPING": "mop", "SWEEPING_AND_MOPPING": "bot
              "MOPPING_AFTER_SWEEPING": "mop_after_sweep"}
 
 
+def dock_position(state, charging):
+    if state.startswith("RETURNING") or charging == Charging.RETURN_TO_CHARGE:
+        return "returning"
+    if state in TRACKING_STATES or state in {"BUILDING", "REMOTE_CONTROL"}:
+        return "away"
+    if charging in (Charging.CHARGING, Charging.CHARGING_COMPLETED) or state in {
+        "CHARGING", "CHARGING_COMPLETED", "WASHING", "WASHING_PAUSED",
+    }:
+        return "docked"
+    return None
+
+
 def guard(method, parameters):
     if method == "get_properties":
         return
@@ -210,6 +222,8 @@ class Robot:
                     "battery": val(P.BATTERY_LEVEL), "error": val(P.ERROR), "map_id": map_id,
                     "rooms": rooms, "saved_map": selected, "fw": str(d.info.firmware_version or "")}
         if not for_command:
+            charging = val(P.CHARGING_STATUS) if P.CHARGING_STATUS in fresh else None
+            snapshot["dock_status"] = dock_position(snapshot["state"], charging)
             snapshot["camera"] = camera_status(d)
             switches = val(P.AUTO_SWITCH_SETTINGS, str)
             snapshot["cleangenius"] = cleangenius_value(switches)
