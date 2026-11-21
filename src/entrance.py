@@ -22,6 +22,9 @@ def _zone_geometry(plan, zones):
     grid = plan["floor"]["grid_size"]
     width, height = (right - left) // grid, (top - bottom) // grid
     occupied = np.unpackbits(np.frombuffer(bits, dtype=np.uint8), count=width * height).reshape(height, width)[::-1]
+    walkable = np.zeros((height, width), dtype=bool)
+    for y, start, end in plan["floor"]["runs"]:
+        walkable[(y - bottom) // grid, (start - left) // grid:(end - left) // grid] = True
     local = []
     for zone in zones:
         check_zone_geometry(zone, plan, grid)
@@ -30,15 +33,10 @@ def _zone_geometry(plan, zones):
         col0, row0 = max(0, (x1 - left) // grid - 1), max(0, (y1 - bottom) // grid - 1)
         col1 = min(width, (x2 - left + grid - 1) // grid + 1)
         row1 = min(height, (y2 - bottom + grid - 1) // grid + 1)
-        outline = np.packbits(occupied[row0:row1, col0:col1]).tobytes()
-        floor = []
-        for y, start, end in plan["floor"]["runs"]:
-            if y >= y2:
-                break
-            if y + grid > y1 and start < x2 and end > x1:
-                floor.append([max(y, y1), min(y + grid, y2), max(start, x1), min(end, x2)])
-        local.append([sha256(outline).hexdigest(), floor])
-    return {"anchor": anchor, "footprint": bits.hex(), "local": _fingerprint(local)}
+        region = np.s_[row0:row1, col0:col1]
+        local.extend(sha256(np.packbits(mask[region]).tobytes()).hexdigest() for mask in (occupied, walkable))
+    return {"anchor": anchor, "footprint": bits.hex(), "walkable": np.packbits(walkable).tobytes().hex(),
+            "local": _fingerprint(local)}
 
 
 def _compatible(item, plan):
@@ -50,7 +48,8 @@ def _compatible(item, plan):
     try:
         current = _zone_geometry(plan, item["zones"])
         return (current is not None and reference["local"] == current["local"]
-                and close_footprints(bytes.fromhex(reference["footprint"]), bytes.fromhex(current["footprint"])))
+                and all(close_footprints(bytes.fromhex(reference[key]), bytes.fromhex(current[key]))
+                        for key in ("footprint", "walkable")))
     except (KeyError, TypeError, ValueError):
         return False
 
@@ -61,7 +60,7 @@ class Entrance:
 
     def _read(self):
         try:
-            if self.path.stat().st_size > 80_000:
+            if self.path.stat().st_size > 140_000:
                 raise ValueError
             item = read(self.path)
             if not isinstance(item, dict) or not {"binding", "map_id", "revision", "zones"} <= item.keys():

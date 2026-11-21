@@ -68,6 +68,17 @@ class EntranceGeometryTest(unittest.TestCase):
         self.assertEqual(altered_plan["room_area_m2"], plan["room_area_m2"])
         self.assertEqual(self.store.view(self.robot, altered_plan), {"version": saved["version"], "status": "stale"})
 
+    def test_rejects_major_floor_changes_even_inside_an_unchanged_outline(self):
+        plan, saved = self.save()
+        changed = deepcopy(self.map)
+        changed.pixel_type[57, 1:16] = 255
+        harmless = interactive_map(changed, plan)
+        self.assertEqual(self.store.view(self.robot, harmless), saved)
+        changed.pixel_type[58, 1:16] = 255
+        altered = interactive_map(changed, harmless)
+        self.assertEqual(altered["footprint"], plan["footprint"])
+        self.assertEqual(self.store.view(self.robot, altered)["status"], "stale")
+
     def test_rejects_new_binding_map_axis_boundary_dock_and_restrictions(self):
         plan, saved = self.save()
         self.assertEqual(self.store.view("other-dreame", plan)["status"], "stale")
