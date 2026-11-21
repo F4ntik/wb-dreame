@@ -35,7 +35,8 @@ printf '%s\n' '{}' > "$d/state/underlay-alignment.json"
 printf '%s\n' '{}' > "$d/state/underlay-footprint.json"
 printf '%s\n' '"99bdf523e1514cf3b2080691f191b6f5"' > "$d/state/mqtt-owner.json"
 printf '%s\n' '{"fixture":"Кухня"}' > "$d/state/room-names.json"
-(cd "$d" && sha256sum config.json account.json state/session.json underlay.jpg underlay.json state/jobs.sqlite3 state/underlay-alignment.json state/underlay-footprint.json state/mqtt-owner.json state/room-names.json) > "$r/before"
+printf '%s\n' '{"settings":{"repeats":2}}' > "$d/state/entrance.json"
+(cd "$d" && sha256sum state/entrance.json config.json account.json state/session.json underlay.jpg underlay.json state/jobs.sqlite3 state/underlay-alignment.json state/underlay-footprint.json state/mqtt-owner.json state/room-names.json) > "$r/before"
 check() { (cd "$d" && sha256sum -c "$r/before"); }
 pkg -i "$deb"
 check
@@ -82,5 +83,6 @@ test ! -e "$d/state/underlay-alignment.json"
 test ! -e "$d/state/underlay-footprint.json"
 test ! -e "$d/state/mqtt-owner.json"
 test ! -e "$d/state/room-names.json"
+test ! -e "$d/state/entrance.json"
 test ! -e "$d/state/mqtt-legacy-preview17"
 echo 'PASS install, reinstall, version upgrade, remove, reinstall, replacement rootfs, selective purge'
