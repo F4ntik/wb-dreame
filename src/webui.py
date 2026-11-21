@@ -90,7 +90,7 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         path = urlsplit(self.path).path
         if path not in ("/dreame/api/job", "/dreame/api/preview", "/dreame/api/preference", "/dreame/api/underlay",
-                        "/dreame/api/room-name", "/dreame/api/schedules"):
+                        "/dreame/api/schedules"):
             self.reply(404, {"status": "error", "message": "Действие не найдено"})
             return
         try:
@@ -124,8 +124,6 @@ class Handler(BaseHTTPRequestHandler):
                 outcome = self.server.bridge.web_adjust(request)
             elif path.endswith("/preference"):
                 outcome = self.server.bridge.web_preference(request)
-            elif path.endswith("/room-name"):
-                outcome = self.server.bridge.web_room_name(request)
             elif path.endswith("/schedules"):
                 outcome = self.server.bridge.web_schedules(request)
             else:

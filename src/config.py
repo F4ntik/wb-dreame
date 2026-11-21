@@ -13,6 +13,7 @@ MODELS = dict.fromkeys(COMMAND_MODELS, "Dreame L40 Ultra") | {
     "dreame.vacuum.r9419a": "Dreame L40s Pro Ultra",
 }
 ID = re.compile(r"[a-z][a-z0-9_]{0,47}\Z")
+ROOM_KEY = re.compile(r"[a-f0-9]{64}\Z")
 DEFAULT = {"allow_commands": False, "poll_seconds": 30, "profiles": []}
 
 
@@ -46,9 +47,20 @@ def integer(v, low, high):
     return type(v) is int and low <= v <= high
 
 
+def valid_room_name(name):
+    return isinstance(name, str) and 1 <= len(name) <= 48 and name.isprintable() and name == name.strip()
+
+
+def valid_room_names(names):
+    return isinstance(names, dict) and all(isinstance(key, str) and ROOM_KEY.fullmatch(key) and valid_room_name(name)
+                                           for key, name in names.items())
+
+
 def validate(c):
-    if not isinstance(c, dict) or set(c) != set(DEFAULT):
+    if not isinstance(c, dict) or not DEFAULT.keys() <= c.keys() <= DEFAULT.keys() | {"room_names"}:
         raise Refused("Проверьте поля конфигурации")
+    if not valid_room_names(c.get("room_names", {})):
+        raise Refused("Проверьте сохранённые названия комнат")
     if type(c["allow_commands"]) is not bool or not integer(c["poll_seconds"], 15, 300):
         raise Refused("Интервал опроса должен быть целым числом от 15 до 300 с")
     profiles = c["profiles"]

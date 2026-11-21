@@ -15,7 +15,7 @@ from overlays import read_overlays
 from preferences import apply_preference
 from panel import interactive_map, map_snapshot, render_map_frame
 from robot import TRACKING_STATES, Robot, check_writes_with
-from room_names import RoomNames
+from room_names import ROOM_CATALOG, RoomNames, room_aliases
 from schedules import read_schedules, save_charging_schedule
 from underlay import Underlay
 from webui import WebConflict, start_ui
@@ -37,7 +37,7 @@ class Bridge:
         self.allow_commands = False
         self.jobs = None
         self.underlay = Underlay(DATA)
-        self.room_names = RoomNames(STATE)
+        self.room_names = RoomNames()
         self.latest = {"online": False, "state": "Ожидание данных", "map": None, "battery": None, "details": {}}
 
     def pub(self, suffix, value):
@@ -54,6 +54,7 @@ class Bridge:
         self.offline("Ожидание данных")
 
     def offline(self, status):
+        self.room_names.publish(None)
         self.latest = {**self.latest, "online": False, "state": status, "map": None, "_live_plan": None,
                        "tracking_active": False, "overlays": [], "camera": {}, "cleangenius": None}
         for name in CHANNELS:
@@ -71,6 +72,7 @@ class Bridge:
                        "tracking_active": tracking, "_live_plan": data.get("saved_map"), "_station_pause": station_pause,
                        "details": data.get("details", {}), "overlays": data.get("overlays", []), "cleangenius": data.get("cleangenius"),
                        "preferences": data.get("preferences", []), "camera": data.get("camera", {})}
+        self.room_names.publish(self.latest["map"])
         for key, value in (("state_robot", data["state"]), ("fw", data["fw"]),
                            ("level_battery", data["battery"]), ("map_id", data["map_id"]),
                            ("rooms", encode(data["rooms"]))):
@@ -179,17 +181,6 @@ class Bridge:
         except (OSError, ValueError, TypeError):
             return False
 
-    def web_room_name(self, request):
-        if not self.io_lock.acquire(blocking=False):
-            raise WebConflict("Драйвер занят. Повторите через несколько секунд.")
-        try:
-            latest = self.latest
-            if not latest["online"] or self.halt.is_set():
-                raise WebConflict("Нет актуальной карты. Повторите после восстановления связи.")
-            return self.room_names.save(latest["map"], request)
-        finally:
-            self.io_lock.release()
-
     def web_job(self, request, preview):
         if not preview and self.jobs:
             existing = self.jobs.lookup(request)
@@ -264,7 +255,12 @@ class Bridge:
         self.title = MODELS.get(account.get("model"), "Dreame")
         self.allow_commands = config["allow_commands"]
         self.jobs = Jobs(STATE)
-        self.room_names = RoomNames(STATE, account.get("did", ""))
+        try:
+            aliases = room_aliases(config)
+        except Refused as exc:
+            logging.warning("%s", exc)
+            aliases = {}
+        self.room_names = RoomNames(account.get("did", ""), aliases, ROOM_CATALOG)
         signal.signal(signal.SIGTERM, self.stop)
         signal.signal(signal.SIGINT, self.stop)
         failures = 0

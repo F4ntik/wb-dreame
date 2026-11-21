@@ -3,12 +3,42 @@
   "title": "Пылесос Dreame",
   "description": "Параметры драйвера Dreamehome. Привязка аккаунта выполняется на контроллере через wb-dreame setup.",
   "type": "object",
-  "configFile": {"path": "/mnt/data/etc/wb-mqtt-dreame/config.json", "service": "wb-mqtt-dreame"},
-  "required": ["poll_seconds", "allow_commands", "profiles"],
+  "configFile": {
+    "path": "/mnt/data/etc/wb-mqtt-dreame/config.json",
+    "service": "wb-mqtt-dreame",
+    "toJSON": ["/usr/bin/wb-dreame", "confed-tojson"],
+    "fromJSON": ["/usr/bin/wb-dreame", "confed-fromjson"],
+    "needReload": true
+  },
+  "required": ["poll_seconds", "allow_commands", "edit_revision", "rooms"],
   "additionalProperties": false,
+  "limited": true,
   "properties": {
     "poll_seconds": {"type": "integer", "title": "Интервал опроса, с", "default": 30, "minimum": 15, "maximum": 300, "propertyOrder": 1},
     "allow_commands": {"type": "boolean", "title": "Разрешить запуск и команды движения с панели", "description": "При выключенном флаге можно смотреть карту, выбирать помещения и проверять задания.", "default": false, "format": "checkbox", "propertyOrder": 2},
-    "profiles": {"type": "array", "title": "Сохранённые профили", "default": [], "maxItems": 32, "items": {"type": "object"}, "options": {"hidden": true}}
+    "edit_revision": {"type": "string", "pattern": "^[a-f0-9]{64}$", "options": {"hidden": true}},
+    "rooms": {
+      "type": "array",
+      "title": "Названия комнат",
+      "description": "Пустое поле возвращает название Dreamehome. После сохранения или изменения карты откройте настройки заново. Если список пуст, дождитесь загрузки карты.",
+      "propertyOrder": 3,
+      "_format": "table",
+      "options": {
+        "disable_collapse": true,
+        "disable_array_add": true,
+        "disable_array_delete": true,
+        "disable_array_reorder": true
+      },
+      "items": {
+        "type": "object",
+        "required": ["key", "original", "name"],
+        "additionalProperties": false,
+        "properties": {
+          "key": {"type": "string", "pattern": "^[a-f0-9]{64}$", "options": {"hidden": true}},
+          "original": {"type": "string", "title": "Название в Dreamehome", "readOnly": true, "propertyOrder": 1},
+          "name": {"type": "string", "title": "Название на WB", "maxLength": 48, "propertyOrder": 2}
+        }
+      }
+    }
   }
 }

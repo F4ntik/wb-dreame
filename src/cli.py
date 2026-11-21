@@ -40,7 +40,8 @@ def setup():
 
 def main():
     p = argparse.ArgumentParser(description="Dreame для Wiren Board")
-    p.add_argument("action", choices=["setup", "check", "panel", "install-panel", "remove-panel", "service", "clear-retained"])
+    p.add_argument("action", choices=["setup", "check", "panel", "install-panel", "remove-panel", "service",
+                                      "clear-retained", "confed-tojson", "confed-fromjson"])
     args = p.parse_args()
     if args.action == "setup":
         setup()
@@ -51,6 +52,17 @@ def main():
     elif args.action == "panel":
         from panel import make_panel
         sys.stdout.buffer.write((json.dumps(make_panel(), ensure_ascii=False, separators=(",", ":")) + "\n").encode("utf-8"))
+    elif args.action in ("confed-tojson", "confed-fromjson"):
+        from room_names import confed_save, confed_view, read_room_catalog, room_aliases
+        form = json.load(sys.stdin.buffer)
+        rooms = read_room_catalog()
+        if args.action == "confed-tojson":
+            config = validate(form)
+            result = confed_view(config, rooms, room_aliases(config))
+        else:
+            config = validate(read(CONFIG))
+            result = confed_save(form, config, rooms, room_aliases(config))
+        sys.stdout.buffer.write((json.dumps(result, ensure_ascii=False, indent=2) + "\n").encode("utf-8"))
     elif args.action == "install-panel":
         from registration import register
         print(register())

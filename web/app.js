@@ -3,7 +3,6 @@ import { adjustUnderlay, cleaningCoverage, dragZone, jobRequest, mapInfo, mapOve
   zoneMeasures } from './controls.js';
 import { initViews, resourceWidget } from './views.js';
 import { historyView } from './history.js';
-import { roomNameEditor } from './room-names.js';
 
 const byId = id => document.getElementById(id);
 const mapHost = byId('map');
@@ -52,7 +51,6 @@ const preferenceList = byId('preference-list');
 const cleaningModeOptions = byId('cleaning-mode-options');
 const preferenceKeys = new WeakMap();
 const requestHeaders = { 'Content-Type': 'application/json', 'X-Dreame-Request': '1' };
-const renderRoomNames = roomNameEditor(byId('room-names'), requestHeaders, poll);
 const liveCoverageSwitch = byId('live-coverage-switch');
 const coverageSwitches = [liveCoverageSwitch, byId('history-coverage-switch')];
 const coverageStorageKey = 'dreame.coverage-visible';
@@ -321,8 +319,7 @@ function changeTarget(kind) {
 
 function replaceMap(next) {
   if (next && map?.id === next.id && map.revision === next.revision) {
-    Object.assign(map, { unitsPerMetre: next.unitsPerMetre, floor: next.floor, roomAreas: next.roomAreas, rooms: next.rooms,
-      roomNames: next.roomNames });
+    Object.assign(map, { unitsPerMetre: next.unitsPerMetre, floor: next.floor, roomAreas: next.roomAreas, rooms: next.rooms });
     for (const button of roomList.querySelectorAll('button[data-room]')) {
       label(button.children[1], map.rooms[button.dataset.room]);
     }
@@ -985,7 +982,6 @@ function render(data, keepAlignment = false) {
   label(byId('dock-state'), dockStatus(data));
   label(byId('command-state'), data.allow_commands === true ? 'Команды доступны' : 'Просмотр и проверка');
   replaceMap(online ? mapInfo(data.map, data.room_names) : null);
-  renderRoomNames(map?.roomNames || []);
   if (!keepAlignment || !underlayCalibration) renderUnderlay(data.underlay);
   renderOverlays(data.overlays, data.map?.overlays);
   renderLivePosition();
