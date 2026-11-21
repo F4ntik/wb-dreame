@@ -67,7 +67,7 @@ for (const input of coverageSwitches) {
 }
 const renderHistory = historyView(coverageSwitches);
 const renderResources = resourceWidget(byId('metrics'));
-initViews();
+window.addEventListener('DOMContentLoaded', initViews, { once: true });
 const numbers = new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 1 });
 const measures = new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 2 });
 const frameTime = new Intl.DateTimeFormat('ru-RU', { timeStyle: 'medium' });

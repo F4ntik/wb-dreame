@@ -245,7 +245,8 @@ export function historyView(coverageSwitches) {
         const button = element('button', undefined, 'history-link journal-row');
         button.type = 'button';
         button.dataset.timestamp = row.timestamp;
-        button.setAttribute('aria-label', 'Открыть уборку за ' + day.format(date));
+        button.setAttribute('aria-label', ['Открыть уборку за ' + day.format(date), row.details[0], row.status,
+          row.area !== null && metric(row.area, ' м²'), row.duration !== null && metric(row.duration, ' мин')].filter(Boolean).join(', '));
         const taskIcon = element('span', undefined, 'journal-mark');
         taskIcon.append(glyph(row.details[0] === 'По зоне' ? 'area' : row.details[0] === 'По комнатам' ? 'map' : 'clean'));
         const title = element('span', undefined, 'journal-title');
