@@ -47,6 +47,11 @@ def dock_position(state, charging):
 def guard(method, parameters):
     if method == "get_properties" or shortcut_permitted(method, parameters, write=False):
         return
+    if shortcut_permitted(method, parameters, write=True):
+        authorized = WRITE_AUTHORIZATION.get()
+        if authorized is None or not authorized():
+            raise Refused("Разрешение управления отозвано")
+        return
     reclean = RECLEAN_ACTION.get()
     if reclean is not None:
         authorized_write = method == "action" and parameters == reclean
@@ -54,7 +59,7 @@ def guard(method, parameters):
         pair = (parameters.get("siid"), parameters.get("aiid"))
         if pair in READ_ACTIONS:
             return
-        authorized_write = pair in ALLOWED_ACTION.get() or delete_write_permitted(method, parameters) or shortcut_permitted(method, parameters, write=True)
+        authorized_write = pair in ALLOWED_ACTION.get() or delete_write_permitted(method, parameters)
     else:
         authorized_write = property_write_permitted(method, parameters)
     if authorized_write:

@@ -82,6 +82,7 @@ const frameTime = new Intl.DateTimeFormat('ru-RU', { timeStyle: 'medium' });
 const reportTime = new Intl.DateTimeFormat('ru-RU', { dateStyle: 'short', timeStyle: 'short' });
 
 const states = {
+  SHORTCUT: 'Выполняет сценарий', SECOND_CLEANING: 'Доубирает', EXTRA_CLEANING: 'Повторная уборка',
   CHARGING_COMPLETED: 'Зарядка завершена', CHARGING: 'Зарядка', IDLE: 'Ожидание',
   SWEEPING: 'Подметает', MOPPING: 'Моет пол', SWEEPING_AND_MOPPING: 'Убирает и моет пол',
   CLEANING: 'Уборка', SPOT_CLEANING: 'Убирает участок', PAUSED: 'Пауза', RETURNING: 'Возвращается на базу', ERROR: 'Ошибка',
@@ -93,7 +94,7 @@ const motionLabels = {
   stop: 'Остановить уборку?', dock: 'Отправить пылесос на базу?',
 };
 const overlayLabels = { no_go: 'Запретная зона', no_mop: 'Без швабры', wall: 'Виртуальная стена', path: 'Пройденный путь', robot: 'Пылесос' };
-const cleaningStates = new Set(['SWEEPING', 'MOPPING', 'SWEEPING_AND_MOPPING', 'CLEANING', 'SPOT_CLEANING']);
+const cleaningStates = new Set(['SWEEPING', 'MOPPING', 'SWEEPING_AND_MOPPING', 'CLEANING', 'SPOT_CLEANING', 'SHORTCUT', 'SECOND_CLEANING', 'EXTRA_CLEANING']);
 const cleanGeniusLabels = ['Выключен', 'Обычная уборка', 'Глубокая уборка'];
 
 let telemetry = {};
@@ -1269,6 +1270,7 @@ reclean.addEventListener('click', async () => {
 });
 
 async function send(action, scenario = null) {
+  const feedback = scenario?.report ?? notify;
   const job = scenario?.job ?? prepared(action);
   const preview = action === 'start' && telemetry.allow_commands !== true;
   if (busy || preferenceBusy === 'cleangenius' || (action === 'start' && awaitingMode !== null) ||
@@ -1293,7 +1295,7 @@ async function send(action, scenario = null) {
     if (telemetry.online !== true || (!preview && telemetry.allow_commands !== true) ||
         (action === 'start' && (map?.id !== job.map_id || map?.revision !== job.revision || cleanGenius !== preparedMode)) ||
         (job.kind === 'zone' && preparedZoneEpoch !== zoneEpoch)) {
-      notify('Состояние робота, режим или карта изменились. Проверьте задание ещё раз.', true);
+      feedback('Состояние робота, режим или карта изменились. Проверьте задание ещё раз.', true);
       return;
     }
     const identity = requestIdentity(key, preview ? null : retry, newRequestId);
@@ -1305,9 +1307,9 @@ async function send(action, scenario = null) {
     const result = await response.json();
     if (typeof result.status !== 'string' || !result.status) throw new Error('job');
     if (!preview && result.status !== 'unknown') rememberRetry(null);
-    notify(result.message || result.status, !response.ok || result.status === 'unknown');
+    feedback(result.message || result.status, !response.ok || result.status === 'unknown');
   } catch {
-    notify(preview ? 'Ответ о проверке не получен. Попробуйте проверить ещё раз.' :
+    feedback(preview ? 'Ответ о проверке не получен. Попробуйте проверить ещё раз.' :
       'Ответ на команду не получен. Проверьте состояние пылесоса перед повтором.', true);
   } finally {
     confirmingZone = false;
@@ -1352,6 +1354,6 @@ scenarioPanel = scenarios({
       : 'Обведите участок у входа, затем нажмите «Сохранить выделение» в сценариях.', false);
     return true;
   },
-  confirm: confirmMessage, send: scene => send('start', scene),
+  writable: () => telemetry.allow_commands === true, confirm: confirmMessage, send: scene => send('start', scene),
 });
 void poll();

@@ -52,6 +52,7 @@ export function scenarios(ui) {
         const button = document.createElement('button');
         button.type = 'button'; button.dataset.map = String(scene.map_id);
         button.textContent = scene.name;
+        if (!ui.writable()) button.textContent += ' · проверить';
         if (scene.map_id !== ui.map()?.id) button.textContent += scene.map_id ? ' · карта №' + scene.map_id : ' · карта неизвестна';
         button.addEventListener('click', () => run(async () => {
           const detail = await fetchScenario('shortcuts/' + scene.id);
@@ -59,7 +60,7 @@ export function scenarios(ui) {
           if (!map || detail.map_id !== map.id || detail.name !== scene.name) throw new Error('Карта или сценарий изменились. Обновите список.');
           const targets = [...(detail.whole ? ['Вся квартира'] : []), ...detail.rooms.map(id => map.rooms[id] || 'Комната №' + id)];
           if (detail.zones.length) targets.push('Зон: ' + detail.zones.length);
-          await ui.send({job:{action:'start', kind:'shortcut', map_id:map.id, revision:map.revision,
+          await ui.send({report, job:{action:'start', kind:'shortcut', map_id:map.id, revision:map.revision,
             shortcut_id:scene.id, shortcut_revision:detail.revision}, confirmation:'Запустить «' + detail.name
               + '» по настройкам Dreamehome? ' + targets.join(' · ') + '. Этапов: ' + detail.steps + '.'});
         }));
