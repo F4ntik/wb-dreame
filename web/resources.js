@@ -213,12 +213,13 @@ export function resourceWidget(host) {
     for (const [key, img] of images) if (!img) images.delete(key);
     attachPhotos();
   });
-  return (metrics, nextModel, online) => {
-    const snapshot = JSON.stringify([metrics, nextModel, online]);
+  return (metrics, nextModel, online, stateTitle) => {
+    const snapshot = JSON.stringify([metrics, nextModel, online, stateTitle]);
     if (lastSnapshot === snapshot) return;
     lastSnapshot = snapshot;
     model = nextModel;
     const { items, statistics, equipment } = resourceReadings(online ? metrics : []);
+    if (equipment.robot.primary && present(stateTitle)) equipment.robot.primary = stateTitle;
     const hasData = !!(items.length || statistics.length || Object.values(equipment).some(e => e.primary || e.status.length));
     empty.hidden = hasData;
     empty.textContent = online ? 'Робот пока не передал показания.' : 'Показания робота недоступны.';

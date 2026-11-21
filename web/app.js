@@ -1299,9 +1299,9 @@ function render(data, keepAlignment = false, controllerReached = true) {
   if (cleanGenius === awaitingMode) awaitingMode = null;
   const editable = new Set(supplied.map(entry => entry.label));
   if (cleanGenius !== null) editable.add('CleanGenius');
-  const detailKey = JSON.stringify([details, [...editable], data.model, online]);
+  const detailKey = JSON.stringify([details, [...editable], data.model, online, data.state_title]);
   if (lastDetails !== detailKey) {
-    renderResources(details.metrics, data.model, online);
+    renderResources(details.metrics, data.model, online, data.state_title);
     const settings = Array.isArray(details.settings) ? details.settings.filter(item => !editable.has(item?.label)) : [];
     byId('settings').hidden = !settings.length && supplied.length > 0;
     renderRecords('settings', settings);
