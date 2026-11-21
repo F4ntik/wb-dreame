@@ -159,7 +159,8 @@ class Handler(BaseHTTPRequestHandler):
                 outcome = self.server.bridge.web_schedules(request)
             else:
                 outcome = self.server.bridge.web_job(request, preview=path.endswith("/preview"))
-            self.reply(200, outcome)
+            status = 409 if path.endswith("/preference") and outcome.get("status") != "confirmed" else 200
+            self.reply(status, outcome)
         except Refused as exc:
             self.reply(409, {"status": "refused", "message": str(exc)})
         except WebConflict as exc:

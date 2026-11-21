@@ -255,13 +255,15 @@ legend { padding: 0; margin-bottom: .34rem; font-size: .85rem; font-weight: 700;
 .preference-row button, .preference-row > input { min-height: 44px; }
 .preference-row .preference-reason, .records .preference-reason { display: block; font-size: .76rem; font-weight: 400; }
 .preference-row > .preference-reason { grid-column: 1 / -1; }
+.preference-row > .preference-feedback { grid-column: 1 / -1; margin: 0; }
+.preference-readings { display: grid; gap: .15rem; }
+.preference-label { font-weight: 650; }
 .preference-choice-row { grid-template-columns: minmax(0, 1fr) auto; }
 .preference-choice-row fieldset { grid-column: 1 / -1; margin: 0; }
 .preference-choice-row button { grid-column: 2; }
 .preference-choice-row .segmented { grid-template-columns: repeat(auto-fit, minmax(min(100%, 6.8rem), 1fr)); }
 .preference-choice-row .segmented span { display: flex; flex-direction: column; justify-content: center; min-height: 49px; overflow-wrap: anywhere; }
 .preference-choice-row .segmented input:disabled + span { cursor: default; color: var(--muted); }
-.preference-current { display: block; font-size: .68rem; font-weight: 650; color: var(--accent); }
 #cleaning-mode { margin-bottom: .75rem; }
 .history-table { width: 100%; border-collapse: collapse; text-align: left; }
 .history-table th, .history-table td { padding: .4rem .28rem; border-bottom: 1px solid #edf2ef; }

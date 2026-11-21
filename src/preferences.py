@@ -25,6 +25,17 @@ DOCKED = {C.CHARGING.value, C.CHARGING_COMPLETED.value}
 DND_TIME = re.compile(r"(?:[01][0-9]|2[0-3]):[0-5][0-9]\Z")
 
 
+class PreferenceConflict(Refused):
+    def __init__(self, value, message="Значение уже изменилось"):
+        super().__init__(message)
+        self.value = value
+
+
+class PreferenceUnconfirmed(Refused):
+    def __init__(self):
+        super().__init__("Не удалось подтвердить изменение настройки")
+
+
 def auto_switch_wire(prop, value):
     return json.dumps({"k": prop.value, "v": value}, separators=(",", ":"))
 
@@ -126,7 +137,7 @@ def offered(device, *, current=None):
                 result.append({"key": key, "label": label, "value": value, "min": min(choices), "max": max(choices),
                                "choices": [{"value": code, "label": name} for code, name in choices.items()]})
             continue
-        value = device.get_property(prop)
+        value = current[prop] if current is not None and prop in current else device.get_property(prop)
         if not integer(value, 0, maximum) or (
             prop is not P.VOLUME and not (device.capability.dnd_functions and device.status.dnd is True)
         ):
@@ -198,14 +209,15 @@ def _station_idle(observation, self_wash_base):
             and (charging in DOCKED or (state == S.IDLE and charging == C.NOT_CHARGING)))
 
 
-def apply_preference(robot, payload, *, allowed=False):
+def apply_preference(robot, payload, *, allowed=False, readings=None):
     if allowed is not True:
         raise Refused("Изменение настроек отключено в драйвере")
     if (type(payload) is not dict or set(payload) != {"key", "value", "expected"}
             or type(payload["key"]) is not str):
         raise Refused("Укажите доступную настройку и её текущее значение")
+    readings = {} if readings is None else readings
     if payload["key"] in cleaning_preferences.KEYS:
-        return cleaning_preferences.apply(robot, payload)
+        return cleaning_preferences.apply(robot, payload, readings=readings)
     if payload["key"] not in PREFERENCES:
         raise Refused("Укажите доступную настройку и её текущее значение")
     key, value, expected = payload["key"], payload["value"], payload["expected"]
@@ -236,6 +248,7 @@ def apply_preference(robot, payload, *, allowed=False):
         state_props.extend((P.CHARGING_STATUS, P.SELF_WASH_BASE_STATUS, P.FAULTS))
     before = _read(protocol, [prop, *state_props])
     _check_binding(robot, device, protocol, model, did)
+    readings.update(before)
     idle = (_station_idle(before, device.capability.self_wash_base) if check_station else
             type(before[P.STATE]) is int and before[P.STATE] in IDLE and integer(before[P.ERROR], 0, 0))
     if (not idle or not integer(before[P.TASK_STATUS], T.COMPLETED.value, T.COMPLETED.value)
@@ -245,14 +258,17 @@ def apply_preference(robot, payload, *, allowed=False):
             raise Refused("Нельзя изменить CleanGenius, пока робот или база заняты либо есть ошибка")
         raise Refused("Робот занят, в ошибке или тихий режим отключён")
     previous = cleangenius_value(before[prop]) if genius else before[prop]
-    if not integer(previous, 0, maximum) or previous != expected:
-        raise Refused("Значение уже изменилось. Обновите панель")
-    result = {"key": key, "value": value, "changed": value != expected}
-    if value == expected:
+    if not integer(previous, 0, maximum):
+        raise Refused("Робот не подтвердил текущее значение")
+    result = {"key": key, "value": value, "changed": previous != value}
+    if previous == value:
         return result
+    if previous != expected:
+        raise PreferenceConflict(previous)
 
     mapping = PROPERTY_MAPPING[prop]
     wire_value = auto_switch_wire(AS.CLEANGENIUS, value) if genius else value
+    readings.clear()
     token = WRITE.set((did, mapping["siid"], mapping["piid"], wire_value))
     try:
         protocol.set_property(mapping["siid"], mapping["piid"], wire_value, retry_count=0)
@@ -265,11 +281,12 @@ def apply_preference(robot, payload, *, allowed=False):
         after = _read(protocol, [prop, *state_props])
         _check_binding(robot, device, protocol, model, did)
     except Refused:
-        raise Refused("Не удалось подтвердить изменение настройки. Обновите панель") from None
+        raise PreferenceUnconfirmed() from None
+    readings.update(after)
     confirmed = cleangenius_value(after[prop]) if genius else after[prop]
     stable_props = (p for p in state_props if not check_station or p not in (P.ERROR, P.FAULTS))
     if (not integer(confirmed, 0, maximum) or confirmed != value
             or any(type(after[p]) is not type(before[p]) or after[p] != before[p] for p in stable_props)
             or (check_station and not _station_idle(after, device.capability.self_wash_base))):
-        raise Refused("Не удалось подтвердить изменение настройки. Обновите панель")
+        raise PreferenceUnconfirmed()
     return result

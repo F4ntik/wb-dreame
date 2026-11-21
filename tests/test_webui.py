@@ -83,6 +83,11 @@ class GateServiceTest(unittest.TestCase):
             self.assertEqual(call("GET", "/dreame/api/history/200")[0], 404)
             bridge.web_job.assert_not_called()
             self.assertEqual(call("POST", "/dreame/api/preview", "{}", {**headers, "Origin": "http://localhost"})[0], 200)
+            for status, code in (("confirmed", 200), ("conflict", 409), ("unknown", 409)):
+                outcome = {"status": status, "key": "volume", "preferences": [{"key": "volume", "value": 20}]}
+                bridge.web_preference.return_value = outcome
+                http_status, body = call("POST", "/dreame/api/preference", "{}", headers)
+                self.assertEqual((http_status, json.loads(body)), (code, outcome))
             self.assertEqual(call("POST", "/dreame/api/room-name", "{}", headers)[0], 404)
             bridge.web_job.assert_called_once_with({}, preview=True)
             bridge.web_schedules.return_value = {"charging": {"enabled": True}}

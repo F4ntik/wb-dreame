@@ -14,7 +14,7 @@ from history_media import obstacle_photo, obstacles
 from jobs import ACTIVE, PAUSED, Jobs, _normalize, job_availability
 from mqtt_namespace import CHANNELS, OWNER_FILE, ROOM_CHANNELS, STATE_LABELS, SUFFIXES, RetainedSession, encode, lock_namespace, read_owner, room_meta
 from overlays import live_room_outcomes, read_overlays
-from preferences import apply_preference
+from preferences import PreferenceConflict, PreferenceUnconfirmed, apply_preference
 from panel import interactive_map, map_snapshot, render_map_frame
 from robot import TRACKING_STATES, Robot, check_writes_with
 from room_names import ROOM_CATALOG, RoomNames, room_aliases
@@ -298,10 +298,26 @@ class Bridge:
         try:
             if not self.cloud or not self.latest["online"] or self.halt.is_set():
                 raise WebConflict("Нет свежих данных робота")
-            with check_writes_with(self.commands_enabled):
-                result = apply_preference(self.cloud, request, allowed=self.commands_enabled())
-            self.refresh.set()
-            return {**result, "status": "confirmed", "message": "Значение подтверждено роботом"}
+            readings = {}
+            try:
+                with check_writes_with(self.commands_enabled):
+                    result = apply_preference(self.cloud, request, allowed=self.commands_enabled(), readings=readings)
+                outcome = {**result, "status": "confirmed", "message": "Сохранено"}
+                if result["changed"]:
+                    self.refresh.set()
+            except PreferenceConflict as exc:
+                outcome = {"status": "conflict", "key": request["key"], "value": exc.value, "message": str(exc)}
+            except PreferenceUnconfirmed as exc:
+                outcome = {"status": "unknown", "key": request["key"], "message": str(exc)}
+            except Refused as exc:
+                if not readings:
+                    raise
+                outcome = {"status": "refused", "key": request["key"], "message": str(exc)}
+            if readings:
+                fresh = self.cloud.preference_state(readings=readings)
+                self.latest = {**self.latest, **fresh}
+                outcome.update(fresh)
+            return outcome
         finally:
             self.io_lock.release()
 

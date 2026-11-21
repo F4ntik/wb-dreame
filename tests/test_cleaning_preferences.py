@@ -3,9 +3,11 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import Mock
 
+from bridge import Bridge
 from cleaning_preferences import apply, offered
 from config import Refused
 from preferences import auto_switch_value, property_write_permitted
+from robot import Robot
 from vendor.types import DreameVacuumAutoSwitchProperty as A, DreameVacuumDeviceCapability
 from vendor.types import DreameVacuumProperty as P, DreameVacuumPropertyMapping as MAPPING
 from vendor.types import DreameVacuumState as S
@@ -150,14 +152,47 @@ class CleaningPreferencesTest(unittest.TestCase):
         self.protocol.set_property.assert_not_called()
 
     def test_stale_expected_and_uncertain_write_are_not_retried(self):
+        self.values[P.SUCTION_LEVEL] = 3
         with self.assertRaisesRegex(Refused, "уже изменилось"):
-            self.update("child_lock", 1, 0)
-        self.assertFalse(self.update("child_lock", 0, 0)["changed"])
+            self.update("suction_level", 2, 1)
+        self.assertFalse(self.update("child_lock", 1, 0)["changed"])
         self.protocol.set_property.assert_not_called()
         self.protocol.set_property.side_effect = TimeoutError
         with self.assertRaisesRegex(Refused, "Не удалось подтвердить"):
             self.update("child_lock", 0, 1)
         self.protocol.set_property.assert_called_once()
+
+    def test_panel_refreshes_from_conflict_and_readback_without_reloading_vendor_cache(self):
+        robot = Robot(self.robot.account, ".")
+        robot.device = self.device
+        bridge = Bridge()
+        bridge.cloud = robot
+        bridge.commands_enabled = lambda: True
+        bridge.latest["online"] = True
+
+        def shown(rows):
+            return next(row["value"] for row in rows["preferences"] if row["key"] == "suction_level")
+
+        self.assertEqual(shown(robot.preference_state(poll={})), 2)
+        self.values[P.SUCTION_LEVEL] = 3
+        payload = {"key": "suction_level", "value": 1, "expected": 2}
+        conflict = bridge.web_preference(payload)
+        self.assertEqual((conflict["status"], conflict["value"], shown(conflict)), ("conflict", 3, 3))
+        reads = self.protocol.get_properties.call_count
+        self.assertEqual(reads, 2)
+        self.assertEqual(shown(bridge.web_state()), 3)
+        self.assertEqual(shown(robot.preference_state(poll={})), 3)
+        self.assertEqual(self.protocol.get_properties.call_count, reads)
+        self.protocol.set_property.assert_not_called()
+
+        result = bridge.web_preference({**payload, "expected": 3})
+        self.assertEqual((result["status"], result["changed"], shown(result)), ("confirmed", True, 1))
+        self.assertEqual(shown(bridge.web_state()), 1)
+        self.assertEqual(shown(robot.preference_state(poll={})), 1)
+        self.protocol.set_property.assert_called_once()
+
+        self.cached[P.SUCTION_LEVEL] = 3
+        self.assertEqual(shown(robot.preference_state(poll={})), 3)
 
     def test_read_only_state_is_explained_and_auto_charging_uses_wire_two(self):
         self.set_switches(SmartHost=2)

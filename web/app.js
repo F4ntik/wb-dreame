@@ -69,6 +69,8 @@ const retryStorageKey = 'dreame.pending-request';
 const preferenceList = byId('preference-list');
 const cleaningModeOptions = byId('cleaning-mode-options');
 const preferenceKeys = new WeakMap();
+const preferenceDrafts = new Map();
+const preferenceMessages = new Map();
 const requestHeaders = { 'Content-Type': 'application/json', 'X-Dreame-Request': '1' };
 const liveCoverageSwitch = byId('live-coverage-switch');
 const coverageSwitches = [liveCoverageSwitch, byId('history-coverage-switch')];
@@ -134,8 +136,8 @@ let lastDetails = '';
 let lastCamera = '';
 let preferences = [];
 let preferenceBusy = null;
+let preferenceEpoch = 0;
 let cleanGenius = null;
-let awaitingMode = null;
 
 byId('back-link').href = `${location.origin}/#/dashboards/svg/view/dreame-control`;
 byId('back-link').hidden = window.self !== window.top;
@@ -487,19 +489,19 @@ function renderJob() {
   const writable = telemetry.allow_commands === true;
   const startReason = jobBlock(telemetry, 'start', !writable);
   const actions = Object.keys(motionLabels).filter(action => !jobBlock(telemetry, action));
-  submit.disabled = Boolean(startReason) || busy || Boolean(drag) || preferenceBusy === 'cleangenius' || awaitingMode !== null || !prepared();
+  submit.disabled = Boolean(startReason) || busy || Boolean(drag) || Boolean(preferenceBusy) || !prepared();
   label(submit, writable ? 'Начать уборку' : 'Проверить задание');
-  label(byId('submit-hint'), preferenceBusy === 'cleangenius' || awaitingMode !== null ? 'Ждём обновления режима CleanGenius.' :
+  label(byId('submit-hint'), preferenceBusy ? 'Ждём ответа о сохранении настройки.' :
     telemetry.online === true && !map ? 'Для задания нужна сохранённая карта.' :
       startReason || (writable ? 'Перед запуском появится подтверждение.' : 'Проверка не запускает пылесос.'));
   byId('motion-panel').hidden = editing || !actions.length;
   label(byId('motion-title'), actions.includes('stop') ? 'Текущая уборка' : 'Управление роботом');
   for (const button of motion.querySelectorAll('button')) {
     button.hidden = !actions.includes(button.dataset.action);
-    button.disabled = busy || preferenceBusy === 'cleangenius';
+    button.disabled = busy || Boolean(preferenceBusy);
   }
   forgetRequest.hidden = !retry;
-  forgetRequest.disabled = busy || preferenceBusy === 'cleangenius';
+  forgetRequest.disabled = busy || Boolean(preferenceBusy);
   const canChooseLayers = map && (!byId('underlay-controls').hidden || !byId('route-choice').hidden || !byId('live-coverage-control').hidden);
   layers.hidden = !canChooseLayers;
   layerPanel.hidden = !canChooseLayers || layers.getAttribute('aria-expanded') !== 'true';
@@ -1095,9 +1097,8 @@ function cleanGeniusText() {
   return mode?.choices?.find(choice => choice.value === cleanGenius)?.label || cleanGeniusLabels[cleanGenius];
 }
 
-function canSavePreference(key) {
-  return telemetry.online === true && telemetry.allow_commands === true && !preferenceBusy && !busy &&
-    (key !== 'cleangenius' || awaitingMode === null);
+function canSavePreference() {
+  return telemetry.online === true && telemetry.allow_commands === true && !preferenceBusy && !busy;
 }
 
 function preferenceChoices(entry) {
@@ -1109,10 +1110,7 @@ function preferenceChoices(entry) {
     input.type = 'radio';
     input.name = 'value';
     input.value = choice.value;
-    input.checked = choice.value === entry.value;
-    const text = make('span', choice.label);
-    if (input.checked) text.append(make('small', 'Сейчас', 'preference-current'));
-    tile.append(input, text);
+    tile.append(input, make('span', choice.label));
     tiles.append(tile);
   }
   group.append(make('legend', entry.label), tiles);
@@ -1120,18 +1118,20 @@ function preferenceChoices(entry) {
 }
 
 function renderPreferenceRows(host, entries) {
-  const key = JSON.stringify(entries);
+  const key = JSON.stringify(entries.map(({key, label, min, max, choices}) => [key, label, choices ? null : min, choices ? null : max, choices]));
   if (key !== preferenceKeys.get(host)) {
     preferenceKeys.set(host, key);
     host.replaceChildren();
     for (const entry of entries) {
       const row = make('form', undefined, entry.choices ? 'preference-row preference-choice-row' : 'preference-row');
       row.dataset.key = entry.key;
+      row.tabIndex = -1;
+      const readings = make('div', undefined, 'preference-readings');
+      readings.append(make('p', undefined, 'preference-actual'), make('p', undefined, 'preference-draft muted'));
       if (entry.choices) {
-        row.append(preferenceChoices(entry));
+        row.append(preferenceChoices(entry), readings);
       } else {
-        const left = make('div');
-        left.append(make('p', entry.label), make('p', `Сейчас — ${entry.value}${entry.unit ? ` ${entry.unit}` : ''}`, 'muted'));
+        readings.prepend(make('p', entry.label, 'preference-label'));
         const input = make('input');
         input.type = 'number';
         input.name = 'value';
@@ -1139,37 +1139,56 @@ function renderPreferenceRows(host, entries) {
         input.step = '1';
         input.min = entry.min;
         input.max = entry.max;
-        input.value = entry.value;
         input.setAttribute('aria-label', `Новое значение: ${entry.label}`);
-        row.append(left, input);
+        row.append(readings, input);
       }
-      const button = make('button', entry.key === 'cleangenius' ? 'Сохранить режим' : 'Сохранить');
+      const button = make('button', 'Сохранить');
       button.type = 'submit';
-      if (entry.disabled_reason) {
-        const reason = make('p', entry.disabled_reason, 'preference-reason muted');
-        reason.id = `preference-reason-${entry.key}`;
-        row.setAttribute('aria-describedby', reason.id);
-        row.append(reason);
-      }
-      row.append(button);
+      const reason = make('p', undefined, 'preference-reason muted');
+      reason.id = `preference-reason-${entry.key}`;
+      row.setAttribute('aria-describedby', reason.id);
+      const feedback = make('p', undefined, 'preference-feedback job-result');
+      feedback.setAttribute('role', 'status');
+      row.append(button, reason, feedback);
       host.append(row);
     }
   }
   for (const [index, row] of [...host.children].entries()) {
     const entry = entries[index];
-    const disabled = Boolean(entry.disabled_reason) || !canSavePreference(row.dataset.key);
-    for (const field of row.querySelectorAll('input')) field.disabled = disabled;
-    const draft = row.elements.namedItem('value').value;
+    const disabled = Boolean(entry.disabled_reason) || !canSavePreference();
+    const draft = preferenceDrafts.get(entry.key) ?? String(entry.value);
+    for (const field of row.querySelectorAll('input')) {
+      field.disabled = disabled;
+      if (field.type === 'radio') field.checked = field.value === draft;
+      else if (field.value !== draft) field.value = draft;
+    }
+    const text = value => entry.choices ? entry.choices.find(choice => String(choice.value) === value)?.label || 'Недоступный вариант'
+      : value === '' ? '—' : `${value}${entry.unit ? ` ${entry.unit}` : ''}`;
+    const source = telemetry.online === true ? 'На роботе' : 'До потери связи';
+    label(row.querySelector('.preference-actual'), `${source} — ${text(String(entry.value))}`);
+    label(row.querySelector('.preference-draft'), `Выбрано — ${text(draft)}`);
     const button = row.querySelector('button');
-    button.hidden = !preferenceRequest(entry, draft === '' ? NaN : Number(draft));
-    button.disabled = disabled || button.hidden;
+    label(button, preferenceBusy === entry.key ? 'Сохраняем…' : 'Сохранить');
+    button.disabled = disabled || !preferenceRequest(entry, draft === '' ? NaN : Number(draft));
+    const reason = row.querySelector('.preference-reason');
+    reason.hidden = !entry.disabled_reason || telemetry.online !== true;
+    label(reason, entry.disabled_reason || '');
+    const feedback = row.querySelector('.preference-feedback'), message = preferenceMessages.get(entry.key);
+    feedback.hidden = !message;
+    feedback.dataset.error = String(message?.error === true);
+    label(feedback, message?.text || '');
   }
 }
 
-function renderPreferences(items) {
-  preferences = items;
-  const others = items.filter(entry => entry.key !== 'cleangenius');
-  const mode = items.find(entry => entry.key === 'cleangenius' && entry.choices);
+function setPreferences(items, rawMode) {
+  preferences = preferenceInfo(items);
+  const mode = preferences.find(entry => entry.key === 'cleangenius')?.value ?? rawMode;
+  cleanGenius = [0, 1, 2].includes(mode) ? mode : null;
+}
+
+function renderPreferences() {
+  const others = preferences.filter(entry => entry.key !== 'cleangenius');
+  const mode = preferences.find(entry => entry.key === 'cleangenius' && entry.choices);
   const readonlyMode = byId('cleaning-mode-readonly');
   byId('cleaning-mode').hidden = !mode && cleanGenius === null;
   readonlyMode.hidden = Boolean(mode) || cleanGenius === null;
@@ -1177,60 +1196,77 @@ function renderPreferences(items) {
   byId('preferences').hidden = !others.length;
   renderPreferenceRows(preferenceList, others);
   renderPreferenceRows(cleaningModeOptions, mode ? [mode] : []);
-  label(byId('preference-hint'), telemetry.online === true && telemetry.allow_commands === true
-    ? 'Изменение вступит в силу после подтверждения роботом.' : 'Показаны текущие значения. Изменение настроек сейчас отключено.');
+  const unlisted = [...preferenceMessages].findLast(([key, message]) =>
+    message.error && !preferences.some(entry => entry.key === key))?.[1];
+  const fallback = byId('preference-unavailable-result');
+  fallback.hidden = !unlisted;
+  label(fallback, unlisted?.text || '');
+  label(byId('preference-hint'), telemetry.online !== true ? 'Нет связи с роботом. Выбранные значения сохранены в этой вкладке.'
+    : telemetry.allow_commands !== true ? 'Изменение настроек отключено в драйвере.' : '');
+  byId('preference-hint').hidden = telemetry.online === true && telemetry.allow_commands === true;
 }
 
 async function savePreference(event) {
   event.preventDefault();
   const row = event.target;
-  if (!canSavePreference(row.dataset.key)) return;
+  if (!canSavePreference()) return;
   const preference = preferences.find(item => item.key === row.dataset.key);
   const value = row.elements.namedItem('value').value;
   const payload = preferenceRequest(preference, value === '' ? NaN : Number(value));
   if (!payload) return;
-  const modeChange = payload.key === 'cleangenius';
-  const feedback = byId(modeChange ? 'cleaning-mode-result' : 'preference-result');
+  const restoreFocus = row.contains(document.activeElement);
+  const feedback = (text, error = true) => preferenceMessages.set(payload.key, {text, error});
   preferenceBusy = payload.key;
-  renderPreferences(preferences);
+  preferenceMessages.delete(payload.key);
+  renderPreferences();
   renderJob();
   try {
-    if (modeChange) {
-      const choice = preference.choices.find(item => item.value === payload.value);
-      if (!(await confirmMessage('Сохранить режим CleanGenius?',
-        `Выбран режим «${choice.label}». Запуск уборки — отдельное действие.`, 'Сохранить режим'))) return;
-      const current = preferences.find(item => item.key === payload.key);
-      if (telemetry.online !== true || telemetry.allow_commands !== true || cleanGenius !== payload.expected ||
-          !preferenceRequest(current, payload.value)) {
-        feedback.dataset.error = 'true';
-        label(feedback, 'Текущий режим или состояние изменились. Проверьте выбранный режим.');
-        feedback.hidden = false;
-        return;
-      }
-    }
     const response = await fetch('./api/preference', {
-      method: 'POST', headers: requestHeaders, body: JSON.stringify(payload), signal: AbortSignal.timeout(15000),
+      method: 'POST', headers: requestHeaders, body: JSON.stringify(payload), signal: AbortSignal.timeout(45000),
     });
     const result = await response.json();
-    if (typeof result.message !== 'string' && typeof result.status !== 'string') throw new Error('preference');
-    if (modeChange && response.ok && result.status === 'confirmed' && result.key === payload.key &&
-        result.value === payload.value && cleanGenius !== result.value) awaitingMode = result.value;
-    feedback.dataset.error = String(!response.ok);
-    label(feedback, result.message || result.status);
-    feedback.hidden = false;
+    const sameKey = result.key === payload.key;
+    const confirmed = response.ok && result.status === 'confirmed' && sameKey && result.value === payload.value;
+    if (sameKey && Array.isArray(result.preferences)) {
+      preferenceEpoch++;
+      setPreferences(result.preferences, result.cleangenius);
+    } else if (confirmed) {
+      preferenceEpoch++;
+      setPreferences(preferences.map(entry => entry.key === payload.key ? {...entry, value: result.value} : entry), cleanGenius);
+    }
+    if (confirmed) {
+      preferenceDrafts.delete(payload.key);
+      feedback('Сохранено.', false);
+    } else if (response.status === 409 && result.status === 'conflict' && sameKey) {
+      feedback(`${result.message || 'Настройка изменилась'}. Проверьте выбранное и нажмите «Сохранить» ещё раз.`);
+    } else {
+      feedback(!response.ok && typeof result.message === 'string' ? result.message : 'Не удалось подтвердить сохранение.');
+    }
   } catch {
-    feedback.dataset.error = 'true';
-    label(feedback, 'Ответ не получен. Дождитесь обновления текущего значения.');
-    feedback.hidden = false;
+    feedback('Ответ не получен. Проверьте значение после восстановления связи.');
   } finally {
     preferenceBusy = null;
-    renderPreferences(preferences);
+    renderPreferences();
     renderJob();
+    if (restoreFocus && document.activeElement === document.body && !byId('view-settings').hidden) {
+      const currentRow = byId('view-settings').querySelector(`.preference-row[data-key="${payload.key}"]`);
+      (currentRow?.querySelector('button:not(:disabled)') || currentRow)?.focus({preventScroll: true});
+    }
   }
 }
 
 for (const host of [preferenceList, cleaningModeOptions]) {
-  host.addEventListener('input', () => renderPreferences(preferences));
+  host.addEventListener('input', event => {
+    const row = event.target.form;
+    preferenceDrafts.set(row.dataset.key, event.target.value);
+    preferenceMessages.delete(row.dataset.key);
+    renderPreferences();
+  });
+  host.addEventListener('keydown', event => {
+    if (event.key !== 'Enter' || !event.target.matches('input')) return;
+    event.preventDefault();
+    event.target.form.querySelector('button:not(:disabled)')?.focus();
+  });
   host.addEventListener('submit', savePreference);
 }
 
@@ -1259,7 +1295,7 @@ function renderCamera(camera) {
   label(note, messages.join(' '));
 }
 
-function render(data, keepAlignment = false, controllerReached = true) {
+function render(data, keepAlignment = false, controllerReached = true, includePreferences = true) {
   telemetry = data;
   setNavigation(data.panel_navigation);
   const online = data.online === true;
@@ -1295,22 +1331,18 @@ function render(data, keepAlignment = false, controllerReached = true) {
   const details = data.details || {};
   renderHistory(details, online && !trackingActive() && data.live_room_status == null
     && (data.state === 'IDLE' || data.dock_status === 'docked'));
-  const supplied = preferenceInfo(data.preferences);
-  const mode = supplied.find(entry => entry.key === 'cleangenius');
-  const rawMode = mode?.value ?? data.cleangenius;
-  cleanGenius = [0, 1, 2].includes(rawMode) ? rawMode : null;
-  if (cleanGenius === awaitingMode) awaitingMode = null;
-  const editable = new Set(supplied.map(entry => entry.label));
+  if (online && includePreferences) setPreferences(data.preferences, data.cleangenius);
+  const editable = new Set(preferences.map(entry => entry.label));
   if (cleanGenius !== null) editable.add('CleanGenius');
   const detailKey = JSON.stringify([details, [...editable], data.model, online, data.state_title]);
   if (lastDetails !== detailKey) {
     renderResources(details.metrics, data.model, online, data.state_title);
     const settings = Array.isArray(details.settings) ? details.settings.filter(item => !editable.has(item?.label)) : [];
-    byId('settings').hidden = !settings.length && supplied.length > 0;
+    byId('settings').hidden = !settings.length && preferences.length > 0;
     renderRecords('settings', settings);
     lastDetails = detailKey;
   }
-  renderPreferences(supplied);
+  renderPreferences();
   renderCamera(data.camera);
   renderJob();
 }
@@ -1321,10 +1353,12 @@ async function poll() {
   polling = true;
   byId('retry-connection').disabled = true;
   const currentAlignment = alignmentVersion;
+  const currentPreferences = preferenceEpoch;
   try {
     const result = await fetch('./api/state', { cache: 'no-store', signal: AbortSignal.timeout(8000) });
     if (!result.ok) throw new Error('state');
-    render(await result.json(), alignmentVersion !== currentAlignment);
+    const data = await result.json();
+    render(data, alignmentVersion !== currentAlignment, true, preferenceEpoch === currentPreferences);
   } catch {
     render({}, false, false);
   } finally {
@@ -1380,7 +1414,7 @@ function renderReclean() {
   else if (!report) reason = 'Ждём последнего отчёта Dreamehome.';
   else if (!report.mapAvailable) reason = 'У последнего отчёта нет архивной карты.';
   else reason = jobBlock(telemetry, 'start', telemetry.allow_commands !== true);
-  reclean.disabled = Boolean(reason) || busy || preferenceBusy === 'cleangenius';
+  reclean.disabled = Boolean(reason) || busy || Boolean(preferenceBusy);
   const hint = reason || `Проверить пропуски по отчёту от ${reportTime.format(report.timestamp * 1000)}.`;
   if (recleanResult.dataset.report !== String(report?.timestamp)) {
     recleanResult.hidden = true;
@@ -1466,7 +1500,7 @@ async function send(action, scenario = null) {
   const feedback = scenario?.report ?? notify;
   const job = scenario?.job ?? prepared(action);
   const preview = action === 'start' && telemetry.allow_commands !== true;
-  if (busy || preferenceBusy === 'cleangenius' || (action === 'start' && awaitingMode !== null) ||
+  if (busy || preferenceBusy ||
       !job || (job.kind === 'zone' && drag)) return;
   const reason = jobBlock(telemetry, action, preview);
   if (reason) {
@@ -1519,7 +1553,7 @@ async function send(action, scenario = null) {
 }
 
 forgetRequest.addEventListener('click', async () => {
-  if (!retry || busy || preferenceBusy === 'cleangenius') return;
+  if (!retry || busy || preferenceBusy) return;
   busy = true;
   renderJob();
   try {
@@ -1577,8 +1611,7 @@ scenarioPanel = scenarios({
     return true;
   },
   writable: () => telemetry.allow_commands === true,
-  startBlock: () => awaitingMode !== null ? 'Ждём обновления режима CleanGenius.'
-    : jobBlock(telemetry, 'start', telemetry.allow_commands !== true),
+  startBlock: () => jobBlock(telemetry, 'start', telemetry.allow_commands !== true),
   confirm: confirmMessage, send: scene => send('start', scene),
 });
 void poll();

@@ -120,6 +120,8 @@ class Robot:
         self.session_file = Path(directory) / "session.json"
         self.device = None
         self._archives = {}
+        self._preference_poll = {}
+        self._preference_reads = {}
 
     def open(self):
         a = self.account
@@ -280,12 +282,13 @@ class Robot:
             snapshot["dock_status"] = dock_position(snapshot["state"], charging)
             snapshot["camera"] = camera_status(d)
             switches = val(P.AUTO_SWITCH_SETTINGS, str)
-            snapshot["cleangenius"] = cleangenius_value(switches)
             current = {p: val(p) for p in (*fresh, *station_props, P.STATE, P.TASK_STATUS, P.ERROR) if p in props}
+            if P.FAULTS in current and faults is not None:
+                current[P.FAULTS] = faults
             if P.AUTO_SWITCH_SETTINGS in props:
                 current[P.AUTO_SWITCH_SETTINGS] = switches
-                current[AS.CLEANGENIUS] = snapshot["cleangenius"]
-            snapshot["preferences"] = offered(d, current=current)
+                current[AS.CLEANGENIUS] = cleangenius_value(switches)
+            snapshot.update(self.preference_state(poll=current))
             snapshot["overlays"] = read_overlays(selected, None)
             snapshot["details"] = read_details(d, current=current)
         if for_command:
@@ -296,6 +299,26 @@ class Robot:
                             command_map_key=map_key, command_map_list=map_list,
                             command_settings=self._command_settings(val, mode_props))
         return snapshot
+
+    def preference_state(self, *, poll=None, readings=None):
+        device = self.device
+        if poll is not None:
+            self._preference_poll = poll
+            for prop in poll:
+                self._preference_reads.pop(prop, None)
+        if readings:
+            for prop, value in readings.items():
+                self._preference_reads[prop] = (value, device.get_property(prop))
+        current = self._preference_poll.copy()
+        # Prefer a direct read until the normal poll or the vendor cache reports another observation.
+        for prop, (value, cached) in self._preference_reads.copy().items():
+            latest = device.get_property(prop)
+            if type(latest) is type(cached) and latest == cached:
+                current[prop] = value
+            else:
+                del self._preference_reads[prop]
+        return {"preferences": offered(device, current=current),
+                "cleangenius": cleangenius_value(current.get(P.AUTO_SWITCH_SETTINGS))}
 
     def _command_map_key(self, saved, raw_map_list):
         manager = self.device._map_manager

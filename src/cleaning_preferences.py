@@ -263,8 +263,8 @@ def _wire(cap, prop, raw, value):
     return value
 
 
-def apply(robot, payload):
-    from preferences import WRITE, _check_binding, _read, auto_switch_value
+def apply(robot, payload, *, readings=None):
+    from preferences import WRITE, PreferenceConflict, PreferenceUnconfirmed, _check_binding, _read, auto_switch_value
 
     def observed(values, prop):
         if isinstance(prop, A):
@@ -304,23 +304,33 @@ def apply(robot, payload):
 
     before = read()
     _check_binding(robot, device, protocol, model, did)
+    readings = {} if readings is None else readings
+    readings.update(before)
     if not device.device_connected or not _idle(cap, before.get):
         raise Refused(BUSY)
     current, choices, reason = _setting(device, prop, labels, lambda p: observed(before, p))
+    if current == value:
+        return {"key": key, "value": value, "changed": False}
     if reason or value not in choices:
         raise Refused(reason or "Этот вариант сейчас недоступен")
     if current != expected:
-        raise Refused("Значение уже изменилось. Обновите панель")
-    result = {"key": key, "value": value, "changed": value != expected}
-    if value == expected:
-        return result
+        if current is None:
+            raise Refused("Робот не подтвердил текущее значение")
+        raise PreferenceConflict(current)
 
     if target is P.CLEANING_MODE and _packed(cap):
         # The station shares this register with the wash interval; Dreame exposes no compare-and-swap.
-        if _read(protocol, [target])[target] != before[target]:
-            raise Refused("Параметры уборки изменились в Dreamehome. Обновите панель")
+        latest = _read(protocol, [target])
+        _check_binding(robot, device, protocol, model, did)
+        if latest != {target: before[target]}:
+            readings.update(latest)
+            current, _, _ = _setting(device, prop, labels, lambda p: observed(before | latest, p))
+            if current == value:
+                return {"key": key, "value": value, "changed": False}
+            raise PreferenceConflict(current, "Параметры уборки изменились в Dreamehome")
     wire = _wire(cap, prop, before[target], value)
     mapping = MAPPING[target]
+    readings.clear()
     token = WRITE.set((did, mapping["siid"], mapping["piid"], wire))
     try:
         protocol.set_property(mapping["siid"], mapping["piid"], wire, retry_count=0)
@@ -328,13 +338,13 @@ def apply(robot, payload):
         pass  # A lost reply still requires confirmation, without repeating the write.
     finally:
         WRITE.reset(token)
-    message = "Не удалось подтвердить изменение настройки. Обновите панель"
     try:
         _check_binding(robot, device, protocol, model, did)
         after = read()
         _check_binding(robot, device, protocol, model, did)
     except Refused:
-        raise Refused(message) from None
+        raise PreferenceUnconfirmed() from None
+    readings.update(after)
     current, _, reason = _setting(device, prop, labels, lambda p: observed(after, p))
     raw_after = after[target]
     if labels is TOGGLE and type(raw_after) is bool:
@@ -343,5 +353,5 @@ def apply(robot, payload):
                  else type(raw_after) is int and raw_after == wire)
     if (not confirmed or current != value or reason or not device.device_connected
             or any(type(after[p]) is not type(before[p]) or after[p] != before[p] for p in props if p is not target)):
-        raise Refused(message)
-    return result
+        raise PreferenceUnconfirmed()
+    return {"key": key, "value": value, "changed": True}
