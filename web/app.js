@@ -1243,11 +1243,18 @@ reclean.addEventListener('click', async () => {
       showRecleanResult(preview.message || 'Доуборка по этому отчёту недоступна.', true);
       return;
     }
-    const names = (preview.targets?.rooms || []).map(id => map?.rooms[id] || `Комната ${id}`);
-    const targets = [names.length && `Пропущенные комнаты — ${names.join(', ')}`,
+    const describeRooms = ids => (ids || []).map(id => map?.rooms[id] || `Комната ${id}`).join(', ');
+    const names = describeRooms(preview.targets?.rooms);
+    const separateRooms = describeRooms(preview.targets?.separate_rooms);
+    const ambiguousRooms = describeRooms(preview.targets?.ambiguous_rooms);
+    const targets = [names && `Пропущенные комнаты — ${names}`,
       preview.targets?.dirty_areas === true && 'Загрязнённые участки на карте Dreamehome'].filter(Boolean);
     if (!targets.length) throw new Error('reclean targets');
-    const description = targets.join('. ') + '.';
+    const notes = [preview.targets?.ordinary_rooms === true && 'Покомнатная уборка с текущими настройками',
+      separateRooms && `Dreame запускает уборку комнат ${separateRooms} отдельной командой. Их можно выбрать на карте`,
+      preview.targets?.separate_dirty === true && 'Загрязнённые участки проверьте в Dreamehome',
+      ambiguousRooms && `Отметки комнат ${ambiguousRooms} противоречат друг другу. Сверьте их с отчётом Dreamehome`];
+    const description = [...targets, ...notes.filter(Boolean)].join('. ') + '.';
     const enabled = telemetry.allow_commands === true;
     showRecleanResult(enabled ? description : `${description} Запуск выключен в настройках драйвера.`);
     if (!enabled || !(await confirmMessage('Доубрать по последнему отчёту?',

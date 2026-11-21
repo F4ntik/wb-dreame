@@ -9,7 +9,7 @@ from config import COMMAND_MODELS, MODELS, Refused, atomic, read
 from details import FRESH_BASE_PROPERTIES, history_records, read_details
 from history_media import camera_status
 from overlays import read_overlays
-from jobs import CLEANING, blocking_error, check_observation_age, job_zones
+from jobs import CLEANING, blocking_error, check_observation_age, job_zones, room_selection
 from panel import map_snapshot
 from preferences import cleangenius_value, offered, property_write_permitted
 from reclean import report_request
@@ -184,8 +184,8 @@ class Robot:
         """Read the latest report and its original map, bypassing the archive display cache."""
         self.identity()
         device = self.device
-        if self.account["model"] not in JOB_MODELS or not device.capability.auto_recleaning:
-            raise Refused("Робот не подтвердил поддержку доуборки из отчёта")
+        if self.account["model"] not in JOB_MODELS:
+            raise Refused("Для этой модели доступно только чтение отчёта")
         if not device.refresh_cleaning_records(force=True, strict=True):
             raise Refused("Не удалось обновить последний отчёт Dreamehome. Повторите проверку")
         records = tuple(device.status._cleaning_history or ())
@@ -387,8 +387,7 @@ class Robot:
             # Use the vendor payload directly: clean_zone also writes global settings; cached controls can divert to dock washing.
             if kind == "rooms":
                 status = DS.SEGMENT_CLEANING
-                payload = {"selects": [[room, *options, 1 if d.capability.customized_cleaning else index]
-                                      for index, room in enumerate(request["rooms"], 1)]}
+                payload = {"selects": room_selection(request["rooms"], options, d.capability.customized_cleaning)}
             else:
                 status = DS.ZONE_CLEANING
                 payload = {"areas": [[*zone, *options] for zone in job_zones(request)]}

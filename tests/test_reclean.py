@@ -33,6 +33,7 @@ class RecleanTest(unittest.TestCase):
         self.archive = NS(history_map=True, empty_map=False, map_id=32, saved_map_id=7, frame_id=3, timestamp_ms=42,
                           multiple_cleaning_time=None, blocked_segments=self.report.blocked_segments.copy(),
                           segments={2: NS(unique_id="room-id")}, cleaning_map_data=None, cleaned_segments=None, dos=None,
+                          skipped_segments=None, pending_segments=None, completed_segments=None,
                           version=3, dimensions=dim, pixel_type=floor, rotation=0)
         self.saved = NS(version=3, dimensions=dim, pixel_type=floor.copy(), segments={2: NS(unique_id="room-id")})
         self.robot = Robot({"model": "dreame.vacuum.r9419a", "did": "fixture"}, self.directory)
@@ -147,6 +148,59 @@ class RecleanTest(unittest.TestCase):
         self.assertEqual(json.loads(params[1]["value"]), {"selects": [[2, 1, 1, 2, 1]], "timestamp": ""})
         with self.assertRaisesRegex(Refused, "уже запрашивалась"):
             self.bridge.web_job(self.request | {"request_id": "new-id"}, preview=False)
+
+    def test_explicit_skipped_rooms_use_current_room_job_and_ignore_conflicting_flags(self):
+        self.archive.blocked_segments = self.report.blocked_segments = None
+        self.archive.skipped_segments = [2, 3, 4]
+        self.archive.completed_segments = [3]
+        self.archive.pending_segments = [4, 5]
+        self.device.capability.auto_recleaning = False
+        preview = self.bridge.web_job(self.request, preview=True)
+        self.assertEqual(preview["targets"], {"rooms": [2], "dirty_areas": False, "ordinary_rooms": True,
+                                               "ambiguous_rooms": [3, 4]})
+
+        def changed_mode(*, for_command):
+            snap = self.observe(for_command=for_command)
+            snap["command_settings"]["mode"] = "mop_after_sweep"
+            return snap
+
+        self.robot.observe.side_effect = changed_mode
+        with self.assertRaisesRegex(Refused, "один этап уборки"):
+            self.bridge.web_job(self.request, preview=False)
+        self.device._protocol.action.assert_not_called()
+        self.robot.observe.side_effect = self.observe
+        self.bridge.web_job(self.request, preview=True)
+        self.assertEqual(self.bridge.web_job(self.request, preview=False)["status"], "acknowledged")
+        params = self.device._protocol.action.call_args.args[2]
+        self.assertEqual(params[0]["value"], DS.SEGMENT_CLEANING.value)
+        self.assertEqual(json.loads(params[1]["value"]), {"selects": [[2, 1, 1, 2, 1]]})
+
+    def test_mixed_native_and_explicit_targets_preview_exactly_what_can_be_sent(self):
+        self.plan["rooms"]["3"] = "Спальня"
+        for frame in (self.archive, self.saved):
+            frame.pixel_type[1, 1] = 3
+            frame.segments[3] = NS(unique_id="room-3")
+        self.archive.skipped_segments = [3]
+        self.report.cleanup_method = CleanupMethod.CLEANGENIUS
+        self.report.second_mopping = 2
+        pixels = np.array([[MapPixelType.DIRTY_AREA, 0], [0, 0]], dtype=np.uint8)
+        self.archive.cleaning_map_data = NS(has_dirty_area=True, pixel_type=pixels, dimensions=self.archive.dimensions,
+                                           rotation=0, has_cleaned_area=False, history_map=True, cleaning_map=True)
+        draft = self.bridge.web_job(self.request, preview=True)
+        self.assertEqual(draft["targets"], {"rooms": [2], "dirty_areas": True, "separate_rooms": [3]})
+        self.device.capability.cleangenius_auto = True
+        with self.assertRaisesRegex(Refused, "условия доуборки изменились"):
+            self.bridge.web_job(self.request, preview=False)
+        draft = self.bridge.web_job(self.request, preview=True)
+        self.assertEqual(draft["targets"], {"rooms": [2, 3], "dirty_areas": False,
+                                             "ordinary_rooms": True, "separate_dirty": True})
+        self.device.capability.cleangenius_auto = False
+        self.bridge.web_job(self.request, preview=True)
+        self.assertEqual(self.bridge.web_job(self.request, preview=False)["status"], "acknowledged")
+        params = self.device._protocol.action.call_args.args[2]
+        self.assertEqual(params[0]["value"], DS.CLEANING.value)
+        self.assertEqual(json.loads(params[1]["value"]), {
+            "MopAgain": 1, "timestamp": "123456", "CleanArea": [], "BigArea": [2]})
 
     def test_does_not_use_cached_report_when_cloud_fails_or_latest_report_changes(self):
         self.bridge.web_job(self.request, preview=True)

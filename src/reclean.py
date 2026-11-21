@@ -6,6 +6,8 @@ import numpy as np
 
 from config import Refused, integer
 from history_map import coverage_pixels
+from jobs import room_selection
+from room_status import room_outcomes
 from vendor.types import CleanupMethod, DreameVacuumStatus as DS, MapPixelType
 
 
@@ -85,27 +87,31 @@ def report_request(history, reference, archive, current, observation, rooms, cap
             (archived_id is None and archive.map_id != current.map_id)):
         raise Refused("Последняя уборка относится к другой карте")
 
-    blocked = archive.blocked_segments or {}
+    blocked_flags = archive.blocked_segments or {}
     reported = history.blocked_segments or {}
-    if reported and reported.keys() != blocked.keys():
+    if reported and reported.keys() != blocked_flags.keys():
         raise Refused("Архивная карта не подтвердила пропуск комнат из отчёта")
-    if not all(integer(room, 1, 63) for room in blocked):
+    if not all(integer(room, 1, 63) for room in blocked_flags):
         raise Refused("В отчёте указаны неизвестные номера пропущенных комнат")
+    outcomes = room_outcomes(archive, archived=True)
+    blocked = [room for room in blocked_flags if outcomes.get(room) == "blocked"]
+    skipped = sorted(room for room, status in outcomes.items() if status == "skipped")
+    skipped_flags = {room for room in archive.skipped_segments or () if integer(room, 1, 63)}
+    ambiguous = sorted((blocked_flags.keys() | skipped_flags) - outcomes.keys())
 
     method = history.cleanup_method
     overlay = archive.cleaning_map_data
     areas = archive.cleaned_segments if archive.cleaned_segments is not None else []
     settings = observation["command_settings"]
-    dirty = (method == CleanupMethod.CLEANGENIUS and not capability.cleangenius_auto and
+    dirty_marked = overlay is not None and overlay.has_dirty_area is True
+    dirty = (method == CleanupMethod.CLEANGENIUS and not capability.cleangenius_auto and dirty_marked and
              (history.mopping_mode == 2 or settings.get("mop_installed") is True) and
-             (history.second_mopping == 2 or bool(areas)) and
-             overlay is not None and overlay.has_dirty_area is True)
-    if not blocked and not dirty:
+             (history.second_mopping == 2 or bool(areas)))
+    if not blocked and not skipped and not dirty:
+        if ambiguous:
+            raise Refused("В последнем отчёте противоречат друг другу отметки комнат. Проверьте отчёт в Dreamehome")
         raise Refused("Dreamehome не подтвердил пропущенные комнаты или загрязнённые участки в последнем отчёте")
-    if method not in (CleanupMethod.CLEANGENIUS, CleanupMethod.DEFAULT_MODE, CleanupMethod.CUSTOMIZED_CLEANING):
-        raise Refused("Режим последней уборки не позволяет проверить доуборку")
 
-    mask = _check_geometry(archive, observation["saved_map"], blocked, dirty, rooms)
     timestamp = history.multiple_cleaning_time
     if timestamp is None or type(timestamp) is int and timestamp == 0:
         timestamp = ""
@@ -115,7 +121,31 @@ def report_request(history, reference, archive, current, observation, rooms, cap
     if timestamp and archive.multiple_cleaning_time and str(archive.multiple_cleaning_time) != str(timestamp):
         raise Refused("Идентификаторы уборки в отчёте и на архивной карте различаются")
 
-    if method != CleanupMethod.CLEANGENIUS and not areas and blocked:
+    native = (capability.auto_recleaning and len(blocked_flags) == len(blocked) and
+              method in (CleanupMethod.CLEANGENIUS, CleanupMethod.DEFAULT_MODE, CleanupMethod.CUSTOMIZED_CLEANING))
+    dos = archive.dos if archive.dos is not None else 1
+    mop_again = native and (dirty or blocked and not areas) and type(areas) is list and integer(dos, 0, 255)
+    mask = None
+    if dirty and mop_again:
+        try:
+            mask = _check_geometry(archive, observation["saved_map"], blocked, True, rooms)
+        except Refused:
+            if not skipped:
+                raise
+            mop_again = False
+
+    ordinary = bool(skipped and not (dirty and mop_again))
+    selected = blocked + skipped if ordinary else blocked
+    if mask is None:
+        _check_geometry(archive, observation["saved_map"], selected, False, rooms)
+
+    if ordinary:
+        if len(selected) > 32:
+            raise Refused("В отчёте больше 32 пропущенных комнат. Выберите их на карте по частям")
+        status = DS.SEGMENT_CLEANING
+        options = [1, settings.get("suction"), settings.get("water")]
+        payload = {"selects": room_selection(selected, options, capability.customized_cleaning)}
+    elif native and method != CleanupMethod.CLEANGENIUS and not areas and blocked:
         if settings.get("cleangenius") is not False or settings.get("customized") is not False:
             raise Refused("Для доуборки пропущенных комнат проверьте режим уборки в Dreamehome")
         if (settings.get("mode") == "mop_after_sweep" or not integer(settings.get("suction"), 0, 3)
@@ -125,15 +155,13 @@ def report_request(history, reference, archive, current, observation, rooms, cap
                                                            settings.get("preserve_water") is True)):
             raise Refused("Робот не подтвердил параметры доуборки пропущенных комнат")
         status = DS.SEGMENT_CLEANING
-        payload = {"selects": [[room, 1, settings["suction"], settings["water"],
-                                1 if capability.customized_cleaning else i]
-                               for i, room in enumerate(blocked, 1)], "timestamp": timestamp}
-    else:
-        dos = archive.dos if archive.dos is not None else 1
-        if type(areas) is not list or not integer(dos, 0, 255) or areas and not dirty:
-            raise Refused("Dreamehome не подтвердил параметры доуборки загрязнённых участков")
+        options = [1, settings["suction"], settings["water"]]
+        payload = {"selects": room_selection(blocked, options, capability.customized_cleaning), "timestamp": timestamp}
+    elif mop_again:
         status = DS.CLEANING
-        payload = {"MopAgain": dos, "timestamp": timestamp, "CleanArea": areas, "BigArea": list(blocked)}
+        payload = {"MopAgain": dos, "timestamp": timestamp, "CleanArea": areas, "BigArea": blocked}
+    else:
+        raise Refused("Dreamehome не подтвердил параметры доуборки по этому отчёту")
 
     try:
         serialized = json.dumps(payload, separators=(",", ":"), allow_nan=False)
@@ -141,11 +169,21 @@ def report_request(history, reference, archive, current, observation, rooms, cap
         raise Refused("Данные доуборки в отчёте не читаются") from None
     if len(serialized) > 8192:
         raise Refused("Данные доуборки в отчёте слишком велики")
+    targets = {"rooms": selected, "dirty_areas": mask is not None}
+    if ordinary:
+        targets["ordinary_rooms"] = True
+    if dirty_marked and mask is None:
+        targets["separate_dirty"] = True
+    if skipped and not ordinary:
+        targets["separate_rooms"] = skipped
+    if ambiguous:
+        targets["ambiguous_rooms"] = ambiguous
     evidence = sha256(json.dumps([binding, reference, archive.map_id, archived_id, archive.frame_id, archive.timestamp_ms,
-                                  archive.multiple_cleaning_time, method, reported, blocked, history.mopping_mode, history.second_mopping,
-                                  settings, status, payload], separators=(",", ":")).encode())
+                                  archive.multiple_cleaning_time, method, reported, blocked_flags, outcomes, targets,
+                                  history.mopping_mode, history.second_mopping, settings, status, payload],
+                                 separators=(",", ":")).encode())
     if mask is not None:
         dims = archive.dimensions
         evidence.update(str((dims.left, dims.top, dims.grid_size, mask.shape)).encode())
         evidence.update(np.packbits(mask).tobytes())
-    return status, serialized, evidence.digest(), {"rooms": list(blocked), "dirty_areas": dirty}
+    return status, serialized, evidence.digest(), targets

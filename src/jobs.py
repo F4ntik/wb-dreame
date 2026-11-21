@@ -172,7 +172,10 @@ def _check_start(request, snap, map_info):
     if not integer(snap.get("battery"), min_charge + 1, 100):
         raise Refused("Заряд слишком низкий или не подтверждён")
     if request["action"] == "reclean":
-        return
+        prepared = snap.get("reclean")
+        if not prepared or not prepared[3].get("ordinary_rooms"):
+            return
+        request = {"kind": "rooms", "rooms": prepared[3]["rooms"], "repeats": 1}
     kind = request["kind"]
     if kind == "shortcut":
         scene = snap.get("command_shortcut") or {}
@@ -220,6 +223,10 @@ def _check_start(request, snap, map_info):
                 check_zone_geometry(zone, map_info, snap.get("command_grid"))
             except Refused as exc:
                 raise Refused(f"Зона {number}: {exc}") from exc
+
+
+def room_selection(rooms, options, customized_cleaning):
+    return [[room, *options, 1 if customized_cleaning else index] for index, room in enumerate(rooms, 1)]
 
 
 class Jobs:
