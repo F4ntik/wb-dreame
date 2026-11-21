@@ -1,7 +1,7 @@
 import json
 import unittest
 from types import SimpleNamespace
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 from bridge import Bridge
 from cleaning_preferences import apply, offered
@@ -80,6 +80,15 @@ class CleaningPreferencesTest(unittest.TestCase):
 
     def item(self, key):
         return next(item for item in offered(self.device) if item["key"] == key)
+
+    def observing_robot(self):
+        self.protocol.cloud.auth_key = None
+        self.device.info.firmware_version = "test"
+        self.device.status.current_map = self.device.status.selected_map = None
+        self.device.status.cleaning_mode = None
+        robot = Robot(self.robot.account, ".")
+        robot.device = self.device
+        return robot
 
     def test_supported_dock_settings_send_only_their_property_once(self):
         for key, expected, value, target, wire in (
@@ -163,8 +172,7 @@ class CleaningPreferencesTest(unittest.TestCase):
         self.protocol.set_property.assert_called_once()
 
     def test_panel_refreshes_from_conflict_and_readback_without_reloading_vendor_cache(self):
-        robot = Robot(self.robot.account, ".")
-        robot.device = self.device
+        robot = self.observing_robot()
         bridge = Bridge()
         bridge.cloud = robot
         bridge.commands_enabled = lambda: True
@@ -191,8 +199,67 @@ class CleaningPreferencesTest(unittest.TestCase):
         self.assertEqual(shown(robot.preference_state(poll={})), 1)
         self.protocol.set_property.assert_called_once()
 
-        self.cached[P.SUCTION_LEVEL] = 3
-        self.assertEqual(shown(robot.preference_state(poll={})), 3)
+        self.values[P.SUCTION_LEVEL] = 2  # Dreamehome restores the unchanged vendor cache value.
+        for cached in (2, 1, 2):
+            self.cached[P.SUCTION_LEVEL] = cached
+            bridge.snapshot(robot.observe())
+            self.assertEqual(shown(bridge.web_state()), 2)
+        self.assertEqual(self.cached[P.SUCTION_LEVEL], 2)
+        self.protocol.set_property.assert_called_once()
+
+        bridge.web_preference(payload)
+        self.values[P.SUCTION_LEVEL] = 3
+        self.assertEqual(shown(robot.observe()), 3)
+        self.assertEqual(shown(robot.observe()), 3)
+        self.assertEqual(self.cached[P.SUCTION_LEVEL], 2)
+        self.cached[P.SUCTION_LEVEL] = 1  # A delayed vendor update carries the earlier write.
+        self.assertEqual(shown(robot.observe()), 3)
+        self.assertEqual(self.protocol.set_property.call_count, 2)
+
+    @patch("robot.monotonic", return_value=100)
+    def test_preference_recheck_keeps_partial_poll_and_backs_off_unavailable_values(self, now):
+        robot = self.observing_robot()
+        self.device.property_mapping = {**MAPPING, P.VOLUME: {"siid": 99, "piid": 1}}
+        self.values[P.CHILD_LOCK] = True
+        robot.preference_state(readings={P.SUCTION_LEVEL: 1, P.CHILD_LOCK: 1, P.VOLUME: 55})
+        self.values.pop(P.SUCTION_LEVEL)
+
+        def read_partial(query, **kwargs):
+            return [row for row in self.read(query, **kwargs) if row["did"] != str(P.SUCTION_LEVEL.value)]
+
+        def readings():
+            return {entry["key"]: entry["value"] for entry in robot.observe()["preferences"]}
+
+        self.protocol.get_properties.side_effect = read_partial
+        self.assertEqual(readings()["child_lock"], 1)
+        self.assertEqual(readings()["suction_level"], 1)
+        self.assertNotIn("suction_level", readings())
+        queries = [[P(int(item["did"])) for item in call.args[0]] for call in self.protocol.get_properties.call_args_list]
+        self.assertEqual(sum(P.SUCTION_LEVEL in props for props in queries), 3)
+        self.assertFalse(any(P.VOLUME in props for props in queries))
+
+        self.protocol.get_properties.reset_mock()
+        self.assertNotIn("suction_level", readings())
+        self.protocol.get_properties.assert_called_once()
+        self.values[P.SUCTION_LEVEL] = 3
+        now.return_value += 301
+        self.protocol.get_properties.side_effect = self.read
+        self.assertEqual(readings()["suction_level"], 3)
+        self.protocol.set_property.assert_not_called()
+
+    def test_preference_recheck_batches_without_reading_any_property_twice(self):
+        robot = self.observing_robot()
+        self.cap.cleangenius = False  # The route still shares the bulk register.
+        robot.preference_state(readings=self.values)
+        robot.observe()
+        queries = [[P(int(item["did"])) for item in call.args[0]] for call in self.protocol.get_properties.call_args_list]
+        requested = [prop for query in queries for prop in query]
+        self.assertEqual(len(queries), 3)
+        self.assertEqual(len(requested), len(set(requested)))
+        self.assertEqual(set(requested), set(self.values) | {P.BATTERY_LEVEL})
+        self.assertEqual(queries[1][0], P.AUTO_SWITCH_SETTINGS)
+        self.assertEqual(len(queries[1]), 10)
+        self.assertLessEqual(len(queries[2]), 15)
 
     def test_read_only_state_is_explained_and_auto_charging_uses_wire_two(self):
         self.set_switches(SmartHost=2)

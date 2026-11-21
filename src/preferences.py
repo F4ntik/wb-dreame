@@ -151,7 +151,7 @@ def offered(device, *, current=None):
     return cleaning_preferences.offered(device, current=current) + result
 
 
-def _read(protocol, props):
+def _read(protocol, props, *, partial=False):
     lookup = {(PROPERTY_MAPPING[p]["siid"], PROPERTY_MAPPING[p]["piid"]): p for p in props}
     query = [{"did": str(prop.value), **PROPERTY_MAPPING[prop]} for prop in props]
     try:
@@ -159,15 +159,20 @@ def _read(protocol, props):
     except Exception:
         raise Refused("Робот не подтвердил текущие настройки") from None
     values = {}
+    invalid = set()
     for row in rows if isinstance(rows, list) else []:
         if type(row) is not dict or type(row.get("siid")) is not int or type(row.get("piid")) is not int:
             continue
         prop = lookup.get((row["siid"], row["piid"]))
         if prop is not None:
-            if prop in values or type(row.get("code")) is not int or row["code"] != 0 or "value" not in row:
-                raise Refused("Робот не подтвердил текущие настройки")
+            if prop in values or prop in invalid or type(row.get("code")) is not int or row["code"] != 0 or "value" not in row:
+                if not partial:
+                    raise Refused("Робот не подтвердил текущие настройки")
+                invalid.add(prop)
+                values.pop(prop, None)
+                continue
             values[prop] = row["value"]
-    if values.keys() != set(props):
+    if not partial and values.keys() != set(props):
         raise Refused("Робот не подтвердил текущие настройки")
     return values
 

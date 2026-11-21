@@ -2,6 +2,7 @@ import json
 import re
 from contextlib import contextmanager
 from contextvars import ContextVar
+from dataclasses import dataclass
 from pathlib import Path
 from time import monotonic
 
@@ -11,7 +12,7 @@ from history_media import camera_status
 from overlays import read_overlays
 from jobs import CLEANING, blocking_error, check_observation_age, job_zones, room_selection
 from panel import map_snapshot
-from preferences import cleangenius_value, offered, property_write_permitted
+from preferences import _read as read_preference_properties, cleangenius_value, offered, property_write_permitted
 from reclean import report_request
 from schedules import delete_write_permitted
 from shortcuts import permitted as shortcut_permitted, start_shortcut
@@ -20,6 +21,7 @@ from vendor.protocol import DreameVacuumDreameHomeCloudProtocol
 from vendor.types import DreameVacuumAction as A, DreameVacuumAutoSwitchProperty as AS, DreameVacuumStatus as DS
 from vendor.types import DreameVacuumChargingStatus as Charging, DreameVacuumSelfWashBaseStatus as BaseStatus
 from vendor.types import DreameVacuumProperty as P, DreameVacuumState as S, DreameVacuumTaskStatus as T
+from vendor.types import DreameVacuumPropertyMapping as MAPPING
 
 ALLOWED_ACTION = ContextVar("allowed_action", default=())
 RECLEAN_ACTION = ContextVar("reclean_action", default=None)
@@ -30,6 +32,16 @@ TRACKING_STATES = CLEANING | {"SECOND_CLEANING", "EXTRA_CLEANING", "INITIAL_DEEP
 JOB_ACTIONS = {"start": A.START, "resume": A.START, "pause": A.PAUSE, "stop": A.STOP, "dock": A.CHARGE}
 JOB_MODES = {"SWEEPING": "sweep", "MOPPING": "mop", "SWEEPING_AND_MOPPING": "both",
              "MOPPING_AFTER_SWEEPING": "mop_after_sweep"}
+PREFERENCE_RECHECK_SECONDS = 300
+PREFERENCE_READ_ATTEMPTS = 3
+
+
+@dataclass
+class PreferenceReading:
+    value: object
+    cached: object
+    next_check: float = 0
+    failures: int = 0
 
 
 def dock_position(state, charging):
@@ -288,6 +300,7 @@ class Robot:
             if P.AUTO_SWITCH_SETTINGS in props:
                 current[P.AUTO_SWITCH_SETTINGS] = switches
                 current[AS.CLEANGENIUS] = cleangenius_value(switches)
+            self._recheck_preferences(current)
             snapshot.update(self.preference_state(poll=current))
             snapshot["overlays"] = read_overlays(selected, None)
             snapshot["details"] = read_details(d, current=current)
@@ -301,24 +314,61 @@ class Robot:
         return snapshot
 
     def preference_state(self, *, poll=None, readings=None):
-        device = self.device
         if poll is not None:
             self._preference_poll = poll
             for prop in poll:
                 self._preference_reads.pop(prop, None)
         if readings:
             for prop, value in readings.items():
-                self._preference_reads[prop] = (value, device.get_property(prop))
-        current = self._preference_poll.copy()
-        # Prefer a direct read until the normal poll or the vendor cache reports another observation.
-        for prop, (value, cached) in self._preference_reads.copy().items():
-            latest = device.get_property(prop)
-            if type(latest) is type(cached) and latest == cached:
-                current[prop] = value
-            else:
-                del self._preference_reads[prop]
-        return {"preferences": offered(device, current=current),
+                self._preference_reads[prop] = PreferenceReading(value, self.device.get_property(prop))
+        current = self._preference_poll | {prop: reading.value for prop, reading in self._preference_reads.items()}
+        return {"preferences": offered(self.device, current=current),
                 "cleangenius": cleangenius_value(current.get(P.AUTO_SWITCH_SETTINGS))}
+
+    def _recheck_preferences(self, current):
+        device, now = self.device, monotonic()
+        pending = []
+        for prop, reading in self._preference_reads.copy().items():
+            if prop in current:
+                continue
+            if prop not in MAPPING or device.property_mapping.get(prop) != MAPPING[prop]:
+                del self._preference_reads[prop]
+                continue
+            cached = device.get_property(prop)
+            cache_changed = type(cached) is not type(reading.cached) or cached != reading.cached
+            # Keep the checked value through the settling window for delayed vendor updates.
+            if reading.next_check and not reading.failures and type(cached) is type(reading.value) and cached == reading.value:
+                if now >= reading.next_check:
+                    del self._preference_reads[prop]
+                else:
+                    reading.cached = cached
+                continue
+            if now >= reading.next_check or (not reading.failures and cache_changed):
+                pending.append(prop)
+
+        batches = []
+        if P.AUTO_SWITCH_SETTINGS in pending:
+            pending.remove(P.AUTO_SWITCH_SETTINGS)
+            batches.append([P.AUTO_SWITCH_SETTINGS, *pending[:9]])
+            pending = pending[9:]
+        batches.extend(pending[i:i + 15] for i in range(0, len(pending), 15))
+        for batch in batches:
+            try:
+                values = read_preference_properties(device._protocol, batch, partial=True)
+            except Refused:
+                values = {}
+            for prop in batch:
+                value = values.get(prop)
+                cached = device.get_property(prop)
+                if type(value) in (int, str, bool):
+                    self._preference_reads[prop] = PreferenceReading(value, cached, now + PREFERENCE_RECHECK_SECONDS)
+                    continue
+                previous = self._preference_reads[prop]
+                failures = previous.failures + 1
+                if failures >= PREFERENCE_READ_ATTEMPTS:
+                    self._preference_reads[prop] = PreferenceReading(None, cached, now + PREFERENCE_RECHECK_SECONDS, failures)
+                else:
+                    self._preference_reads[prop] = PreferenceReading(previous.value, cached, failures=failures)
 
     def _command_map_key(self, saved, raw_map_list):
         manager = self.device._map_manager
