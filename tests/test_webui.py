@@ -64,7 +64,7 @@ class GateServiceTest(unittest.TestCase):
                 self.assertEqual(len(parts), 7)
                 self.assertTrue(all(re.fullmatch(r"https://fr\.dreametech\.com/cdn/shop/files/[\w.-]+_160x\.(?:png|jpg)", path) for path in parts))
                 self.assertEqual(sources - parts, {
-                    "'self'", "data:", photo_root + "xaAkaRJMGwWN5Bx/download/03.jpg", photo_root + "EPRqR47CysdkPBc/download/05.jpg",
+                    "'self'", "data:", photo_root + "wk3xYixrkQPQ5pr/download/04.jpg", photo_root + "EPRqR47CysdkPBc/download/05.jpg",
                 })
             finally:
                 client.close()

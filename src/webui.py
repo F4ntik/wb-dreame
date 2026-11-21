@@ -43,7 +43,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Referrer-Policy", "no-referrer")
         self.send_header("Content-Security-Policy", "default-src 'self'; connect-src 'self'; object-src 'none'; "
                          "frame-ancestors 'self'; base-uri 'none'; style-src 'self' 'unsafe-inline'; img-src 'self' data: "
-                         f"{DREAME_PHOTOS}xaAkaRJMGwWN5Bx/download/03.jpg "
+                         f"{DREAME_PHOTOS}wk3xYixrkQPQ5pr/download/04.jpg "
                          f"{DREAME_PHOTOS}EPRqR47CysdkPBc/download/05.jpg {ACCESSORY_PHOTOS}")
         self.send_header("X-Frame-Options", "SAMEORIGIN")
         self.end_headers()
