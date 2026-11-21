@@ -64,9 +64,43 @@ class HistoryMapTest(unittest.TestCase):
         })
         self.assertTrue(result["has_path"])
         archive.completed_segments = archive.skipped_segments = archive.blocked_segments = None
+        archive.path = None
         unavailable = render_history(archive)
         self.assertEqual(unavailable["room_statuses"], [])
         self.assertNotIn('id="room-statuses"', unavailable["svg"])
+
+    def test_room_observations_use_recorded_cells_and_real_coverage_without_inferring_outcomes(self):
+        archive = frame([[1, 251], [2, 0], [3, MapPixelType.UNKNOWN], [4, 106], [5, 7]],
+                        left=0, top=0, step=50, rotation=90)
+        archive.completed_segments = [3]
+        archive.path = [
+            Path(75, 25, "L"), Path(225, 25, "L"),  # A generic line has no cleaning mode.
+            Path(25, 25, "S"), Path(125, 25, "L"),  # The connecting line crosses room 2.
+            Path(25, 75, "L"), Path(125, 75, "L"),  # Wall and unknown.
+            Path(175, 25, "W"), Path(176, 26, "L"),
+            Path(275, 75, "M"), Path(225, 75, "L"),  # Out-of-bounds section start.
+        ]
+        overlay = archive.cleaning_map_data = deepcopy(archive)
+        overlay.cleaning_map = overlay.has_cleaned_area = overlay.has_dirty_area = True
+        overlay.pixel_type[:] = 0
+        overlay.pixel_type[0, 1] = overlay.pixel_type[2, 1] = overlay.pixel_type[3, 1] = MapPixelType.CLEAN_AREA
+        overlay.pixel_type[4, 1] = MapPixelType.DIRTY_AREA
+        result = render_history(archive)
+        self.assertEqual(result["room_observations"], [
+            {"id": room, "name": f"Комната {room}", "route": route, "covered_m2": area}
+            for room, route, area in ((1, True, None), (3, True, None), (4, True, None), (6, False, 0.0025))
+        ])
+        self.assertEqual([room["id"] for room in result["room_statuses"] if room["status"] == "completed"], [3])
+        layer = ElementTree.fromstring(result["svg"]).find("{*}g[@id='room-statuses']")
+        self.assertEqual({p.get("fill"): p.get("d") for p in layer}, {
+            "#7463A8": "M0 1h2v1h-2zM1 4h1v1h-1z", "#1E9A78": "M1 2h1v1h-1z",
+        })
+        overlay.rotation = 0
+        archive.completed_segments = None
+        mismatched = render_history(archive)
+        self.assertEqual(mismatched["room_statuses"], [])
+        self.assertEqual([row["id"] for row in mismatched["room_observations"]], [1, 3, 4])
+        self.assertTrue(all(row["covered_m2"] is None for row in mismatched["room_observations"]))
 
     def test_archive_grid_rotation_charger_and_image_percent_share_projection(self):
         archive = frame([[1, 0], [1, 255], [0, 2]], rotation=90)
@@ -179,6 +213,11 @@ class HistoryMapTest(unittest.TestCase):
         without_mop.path = without_mop.path[:2]
         self.assertIsNone(render_history(without_mop)["coverage_source"])
         with patch("history_map.MAX_SVG_BYTES", len(render["svg"].encode()) - 1):
+            without_shades = render_history(archive)
+        self.assertEqual(without_shades["coverage_source"], "route")
+        self.assertEqual(without_shades["room_observations"], render["room_observations"])
+        self.assertNotIn('id="room-statuses"', without_shades["svg"])
+        with patch("history_map.MAX_SVG_BYTES", len(without_shades["svg"].encode()) - 1):
             limited = render_history(archive)
         self.assertIsNone(limited["coverage_source"])
         self.assertTrue(limited["has_path"])

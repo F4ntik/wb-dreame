@@ -1,6 +1,20 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { archiveFrame, archiveMapSource, archiveObstacles, archiveRoomStatuses, archiveRoute, historyRows, historyTotals } from '../web/history.js';
+import { archiveFrame, archiveMapSource, archiveObstacles, archiveRoomObservations, archiveRoomStatuses, archiveRoute, historyRows, historyTotals } from '../web/history.js';
+
+test('room observations retain the actual source and reject rows without evidence', () => {
+  assert.deepEqual(archiveRoomObservations([
+    { id: 1, name: 'Кухня', route: true },
+    { id: 2, name: 'Холл', route: false, covered_m2: .0025 },
+    { id: 3, route: 'yes', covered_m2: -1 },
+    { id: 4, route: false, covered_m2: 0 },
+    { id: 7, route: true, covered_m2: 3.2 },
+  ]), [
+    { name: 'Кухня', route: true, area: null },
+    { name: 'Холл', route: false, area: .0025 },
+    { name: 'Комната 7', route: true, area: 3.2 },
+  ]);
+});
 
 test('archive room legend preserves absent evidence and ignores invalid status rows', () => {
   assert.deepEqual(archiveRoomStatuses([{ id: 1, status: 'unknown' }]), []);

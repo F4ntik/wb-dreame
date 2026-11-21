@@ -239,6 +239,9 @@ dialog p { margin: .55rem 0 1rem; }
 .history-room-statuses { display: flex; flex-wrap: wrap; gap: .2rem .8rem; margin: 0 0 .45rem; padding: 0; list-style: none; font-size: .76rem; }
 .history-room-statuses li { color: var(--room-status-ink, var(--muted)); overflow-wrap: anywhere; }
 .history-room-statuses li::before { content: ""; display: inline-block; width: .65rem; height: .55rem; margin-right: .3rem; border-radius: 2px; background: var(--room-status-color, #cedbd8); }
+.history-room-evidence { flex: 0 0 auto; max-height: 7rem; overflow: auto; margin-top: .45rem; font-size: .76rem; }
+.history-room-evidence ul { display: flex; flex-wrap: wrap; gap: .1rem .8rem; margin: .2rem 0; padding: 0; list-style: none; overflow-wrap: anywhere; }
+.history-observed-key::before { content: ""; display: inline-block; width: .65rem; height: .55rem; margin-right: .3rem; border-radius: 2px; background: #7463a8; }
 .history-map-tools { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: .2rem .5rem; margin-bottom: .45rem; font-size: .77rem; }
 .history-layer-toggles { display: flex; flex-wrap: wrap; gap: 0 .7rem; }
 .history-zoom { display: grid; grid-template-columns: 42px 3rem 42px; align-items: center; text-align: center; font-variant-numeric: tabular-nums; }

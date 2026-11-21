@@ -154,8 +154,7 @@ def coverage_pixels(frame, dim):
     return marked
 
 
-def _coverage(frame, dim, base, turns):
-    marked = coverage_pixels(frame, dim)
+def _coverage(marked, base, turns):
     if marked is None:
         return ""
     marked[base < 3] = 0
@@ -213,31 +212,50 @@ def _mop_trace(route, floor, dim, turns):
             f'stroke-linecap="round" stroke-linejoin="round" shape-rendering="auto">{route}</g>')
 
 
-def _archive_room_status(frame, pixels, turns):
+def _archive_room_layers(frame, pixels, dim, turns, marked):
+    if frame.cleaning_map:
+        return "", [], []
     outcomes = room_outcomes(frame, archived=True)
-    if not outcomes or frame.cleaning_map:
-        return "", []
     max_room = 31 if frame.version == 3 else 63
-    segment_values = np.unique(pixels).tolist()
-    room_ids = {value if value <= max_room else value - 100 for value in segment_values
-                if 1 <= value <= max_room or 101 <= value <= 100 + max_room}
-    statuses = ["unknown", "completed", "skipped", "blocked"]
-    palette = ("", "#1E9A78", "#DEA044", "#DE8079")
-    lookup = np.zeros(256, dtype=np.uint8)
+    label_lookup = np.zeros(256, dtype=np.uint8)
+    label_lookup[1:max_room + 1] = label_lookup[101:101 + max_room] = np.arange(1, max_room + 1, dtype=np.uint8)
+    labels = label_lookup[pixels]
+    covered = np.bincount(labels[marked == 1], minlength=max_room + 1) if marked is not None else None
+    step = dim.grid_size
+
+    def in_grid(x, y):
+        return (x, y) if (0 <= x - dim.left < dim.width * step and 0 <= y - dim.top < dim.height * step) else None
+
+    visited = set()
+    for mode, points in iter_route_sections(frame.path, project=in_grid):
+        if mode != PathType.LINE:
+            for x, y in points:
+                visited.add(int(labels[int((x - dim.left) // step), int((y - dim.top) // step)]))
+
+    statuses = ("unknown", "completed", "skipped", "blocked", "observed")
+    palette = ("", "#1E9A78", "#DEA044", "#DE8079", "#7463A8")
+    shades = np.zeros(max_room + 1, dtype=np.uint8)
     rooms = []
-    for room in sorted(room_ids):
+    observations = []
+    for room in np.unique(labels).tolist():
+        if not room:
+            continue
         segment = (frame.segments or {}).get(room)
         if segment is not None and (segment.visibility is False or segment.unmapped):
             continue
         status = outcomes.get(room, "unknown")
-        lookup[room] = lookup[100 + room] = statuses.index(status)
+        covered_m2 = round(int(covered[room]) * step ** 2 / 1_000_000, 6) if covered is not None and covered[room] else None
+        observed = room in visited or covered_m2 is not None
+        shades[room] = statuses.index("observed" if observed and status == "unknown" else status)
         name = getattr(segment, "name", None)
         name = "".join(ch for ch in name if ch.isprintable()).strip()[:100] if isinstance(name, str) else ""
-        rooms.append({"id": room, "name": name or f"Комната {room}", "status": status})
-    if not lookup.any():
-        return "", []
-    layer = _rect_paths(lookup[pixels], turns, palette, MAX_COVERAGE_SPANS)
-    return f'<g id="room-statuses" opacity=".78" shape-rendering="crispEdges">{layer}</g>' if layer else "", rooms
+        identity = {"id": room, "name": name or f"Комната {room}"}
+        rooms.append({**identity, "status": status})
+        if observed:
+            observations.append({**identity, "route": room in visited, "covered_m2": covered_m2})
+    layer = _rect_paths(shades[labels], turns, palette, MAX_COVERAGE_SPANS) if shades.any() else ""
+    svg = f'<g id="room-statuses" opacity=".78" shape-rendering="crispEdges">{layer}</g>' if layer else ""
+    return svg, rooms if any(room["status"] != "unknown" for room in rooms) else [], observations
 
 
 def render_history(map_data):
@@ -254,8 +272,9 @@ def render_history(map_data):
     if not floor_svg:
         return None
 
-    room_layer, room_statuses = _archive_room_status(map_data, pixels, turns)
-    coverage = _coverage(map_data, dim, floor, turns)
+    marked = coverage_pixels(map_data, dim)
+    room_layer, room_statuses, observations = _archive_room_layers(map_data, pixels, dim, turns, marked)
+    coverage = _coverage(marked, floor, turns)
     route, route_sections, mop_route = _route(map_data.path, dim, turns)
     has_coverage = bool(coverage)
     coverage_source = "frame" if has_coverage else None
@@ -292,4 +311,5 @@ def render_history(map_data):
         room_layer = ""
     return {"svg": prefix + room_layer + coverage_start + coverage + suffix,
             "has_path": bool(route), "has_coverage": has_coverage,
-            "coverage_source": coverage_source, "route_sections": route_sections, "room_statuses": room_statuses}
+            "coverage_source": coverage_source, "route_sections": route_sections, "room_statuses": room_statuses,
+            "room_observations": observations}

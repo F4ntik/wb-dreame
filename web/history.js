@@ -88,6 +88,23 @@ export function archiveRoomStatuses(value) {
   return rooms.some(room => room.status !== 'unknown') ? rooms : [];
 }
 
+export function archiveRoomObservations(value) {
+  const seen = new Set();
+  const rooms = [];
+  if (Array.isArray(value) && value.length <= 63) {
+    for (const row of value) {
+      const id = row?.id;
+      if (!Number.isSafeInteger(id) || id < 1 || id > 63 || seen.has(id)) continue;
+      const area = measure(row.covered_m2);
+      const route = row.route === true;
+      if (!route && !area) continue;
+      seen.add(id);
+      rooms.push({ name: text(row.name, 100) || `Комната ${id}`, route, area: area || null });
+    }
+  }
+  return rooms;
+}
+
 function percentPoint(p) {
   return Array.isArray(p) && p.length === 2 && p.every(n => Number.isFinite(n) && n >= 0 && n <= 100) ? p : null;
 }
@@ -180,6 +197,8 @@ export function historyView(coverageSwitches) {
   const coverageSwitch = $('history-coverage-switch');
   const roomStatuses = $('history-room-statuses');
   const roomStatusNote = $('history-room-status-note');
+  const roomEvidence = $('history-room-evidence');
+  const roomObservations = $('history-room-observations');
   pinSwitch.addEventListener('change', () => {
     const pins = mapLayer.querySelector('.history-pins');
     if (pins) pins.hidden = !pinSwitch.checked;
@@ -409,6 +428,8 @@ export function historyView(coverageSwitches) {
     $('history-map-layers').textContent = '';
     roomStatuses.hidden = roomStatusNote.hidden = true;
     roomStatuses.replaceChildren();
+    roomEvidence.hidden = true;
+    roomObservations.replaceChildren();
     $('history-pins-choice').hidden = true;
     $('history-coverage-choice').hidden = true;
     $('history-obstacles').hidden = true;
@@ -550,6 +571,14 @@ export function historyView(coverageSwitches) {
           const item = element('li', `${name} · ${roomStatusLabels[status]}`);
           item.dataset.roomStatus = status;
           return item;
+        }));
+        const observations = archiveRoomObservations(payload.room_observations);
+        roomEvidence.hidden = !observations.length;
+        roomObservations.replaceChildren(...observations.map(({ name, route, area }) => {
+          const parts = [name];
+          if (route) parts.push('уборочный проход');
+          if (area !== null) parts.push(area < .01 ? 'покрытие < 0,01 м²' : `покрытие ${metric(area, ' м²')}`);
+          return element('li', parts.join(' · '));
         }));
         mapInfo('');
         showReplay(payload.route_sections);
