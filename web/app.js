@@ -470,8 +470,8 @@ function renderLiveRoomStatuses(outcomes) {
     if (['completed', 'skipped', 'blocked'].includes(value)) statuses.set(id, value);
   }
   const states = [...new Set(statuses.values())];
-  if (!states.length && map && outcomes && typeof outcomes === 'object') {
-    label(legend, 'Dreame пока не сообщил статусы комнат.');
+  if (!states.length && (trackingActive() || (outcomes && typeof outcomes === 'object'))) {
+    label(legend, 'Ждём статусы комнат от робота.');
   } else {
     legend.replaceChildren(...states.map(state => {
       const item = make('span', roomStatusLabels[state]);
@@ -1133,6 +1133,8 @@ function render(data, keepAlignment = false) {
   last.hidden = typeof data.last_job?.message !== 'string' || !data.last_job.message;
   if (!last.hidden) label(last, `Последний ответ сервиса: ${data.last_job.message}`);
   const details = data.details || {};
+  renderHistory(details, online && !trackingActive() && data.live_room_status == null
+    && (data.state === 'IDLE' || data.dock_status === 'docked'));
   const supplied = preferenceInfo(data.preferences);
   const mode = supplied.find(entry => entry.key === 'cleangenius');
   const rawMode = mode?.value ?? data.cleangenius;
@@ -1142,7 +1144,6 @@ function render(data, keepAlignment = false) {
   if (cleanGenius !== null) editable.add('CleanGenius');
   const detailKey = JSON.stringify([details, [...editable]]);
   if (lastDetails !== detailKey) {
-    renderHistory(details);
     renderResources(details.metrics);
     const settings = Array.isArray(details.settings) ? details.settings.filter(item => !editable.has(item?.label)) : [];
     byId('settings').hidden = !settings.length && supplied.length > 0;

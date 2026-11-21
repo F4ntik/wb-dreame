@@ -14,6 +14,6 @@ def room_outcomes(frame, *, archived=False):
     # The embedded CleanArea list is used for repeat cleaning, not proof of room completion.
     return {
         **{room: "completed" for room in completed - skipped - pending - blocked},
-        **{room: "skipped" for room in skipped - completed - pending},
-        **{room: "blocked" for room in blocked - completed - skipped},
+        **{room: "skipped" for room in skipped - completed - pending - blocked},
+        **{room: "blocked" for room in blocked - completed - skipped - pending},
     }

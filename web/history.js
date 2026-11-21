@@ -166,6 +166,7 @@ export function historyView(coverageSwitches) {
   const close = $('history-close');
   const filter = $('history-filter');
   const list = $('history-list');
+  const latestMap = $('latest-cleaning-map');
   const viewport = $('history-map');
   const mapLayer = $('history-map-layer');
   const mapMessage = $('history-map-message');
@@ -221,12 +222,17 @@ export function historyView(coverageSwitches) {
 
   for (const input of coverageSwitches) input.addEventListener('change', applyArchiveCoverage);
 
+  function navigationRows() {
+    return opener === latestMap ? records : shown;
+  }
+
   function updateNavigation() {
     if (!dialog.open) return;
-    const index = shown.findIndex(row => row.timestamp === active?.timestamp);
-    previous.disabled = index < 0 || index === shown.length - 1;
+    const rows = navigationRows();
+    const index = rows.findIndex(row => row.timestamp === active?.timestamp);
+    previous.disabled = index < 0 || index === rows.length - 1;
     next.disabled = index <= 0;
-    $('history-nav-count').textContent = index < 0 ? '' : `${index + 1} из ${shown.length}`;
+    $('history-nav-count').textContent = index < 0 ? '' : `${index + 1} из ${rows.length}`;
     if ([previous, next].some(button => button === document.activeElement && button.disabled)) close.focus();
   }
 
@@ -278,11 +284,7 @@ export function historyView(coverageSwitches) {
         if (row.status === 'Завершена') result.dataset.complete = 'true';
         const arrow = element('span', '›', 'journal-arrow'); arrow.setAttribute('aria-hidden', 'true');
         button.append(taskIcon, title, measures, result, arrow);
-        button.addEventListener('click', () => {
-          opener = button;
-          dialog.showModal();
-          showRecord(row);
-        });
+        button.addEventListener('click', () => openRecord(row, button));
         const li = element('li'); li.append(button); group.append(li);
       }
       list.replaceChildren(fragment);
@@ -577,9 +579,20 @@ export function historyView(coverageSwitches) {
     void loadMap(row);
   }
 
+  function openRecord(row, button) {
+    opener = button;
+    dialog.showModal();
+    showRecord(row);
+  }
+
+  latestMap.addEventListener('click', () => {
+    if (!latestMap.hidden && records[0]?.mapAvailable) openRecord(records[0], latestMap);
+  });
+
   function neighbour(offset) {
-    const index = shown.findIndex(row => row.timestamp === active?.timestamp);
-    if (index >= 0 && shown[index + offset]) showRecord(shown[index + offset]);
+    const rows = navigationRows();
+    const index = rows.findIndex(row => row.timestamp === active?.timestamp);
+    if (index >= 0 && rows[index + offset]) showRecord(rows[index + offset]);
   }
 
   function dismiss() {
@@ -597,7 +610,8 @@ export function historyView(coverageSwitches) {
     if (dialog.open) return;
     if (active) clearRecord();
     active = null;
-    restoreFocus(opener?.dataset.timestamp);
+    if (opener === latestMap) (latestMap.hidden ? $('tab-map') : latestMap).focus({ preventScroll: true });
+    else restoreFocus(opener?.dataset.timestamp);
     opener = null;
   });
   filter.addEventListener('change', () => { page = 0; renderList(); });
@@ -614,9 +628,10 @@ export function historyView(coverageSwitches) {
   zoomIn.addEventListener('click', () => setZoom(zoom + 50));
   zoomOut.addEventListener('click', () => setZoom(zoom - 50));
 
-  return details => {
+  return (details, showLatestMap) => {
     const currentAvailable = details.history_available === true;
     const fresh = currentAvailable ? historyRows(details.history) : [];
+    latestMap.hidden = !showLatestMap || fresh[0]?.mapAvailable !== true;
     const key = JSON.stringify([currentAvailable, fresh]);
     if (key === signature) return;
     signature = key;

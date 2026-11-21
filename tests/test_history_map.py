@@ -40,12 +40,12 @@ def encoded_frame(map_id, pixels, metadata):
 
 class HistoryMapTest(unittest.TestCase):
     def test_archive_uses_its_own_room_cells_and_only_explicit_non_conflicting_outcomes(self):
-        archive = frame([[1, 102], [2, 3], [4, 5], [6, 7]], rotation=90)
+        archive = frame([[1, 102], [2, 3], [4, 5], [6, 7], [8, 0]], rotation=90)
         archive.completed_segments = [1, 4, 6, 9, False]
-        archive.skipped_segments = [2, 4]
-        archive.pending_segments = [6]
+        archive.skipped_segments = [2, 4, 7]
+        archive.pending_segments = [6, 8]
         archive.cleaned_segments = [5]
-        archive.blocked_segments = {3: [ObstacleReason.BLOCKED_BY_DOOR]}
+        archive.blocked_segments = dict.fromkeys((3, 7, 8), [ObstacleReason.BLOCKED_BY_DOOR])
         archive.segments = {1: Segment(1, 0, 0, 0, 0, custom_name="Кухня & <холл>")}
         archive.path = [Path(-25, -15, "S"), Path(-15, -15, "L")]
         result = render_history(archive)
@@ -53,14 +53,14 @@ class HistoryMapTest(unittest.TestCase):
             {"id": 1, "name": "Кухня & <холл>", "status": "completed"},
             {"id": 2, "name": "Комната 2", "status": "skipped"},
             {"id": 3, "name": "Комната 3", "status": "blocked"},
-            *[{"id": room, "name": f"Комната {room}", "status": "unknown"} for room in (4, 5, 6, 7)],
+            *[{"id": room, "name": f"Комната {room}", "status": "unknown"} for room in (4, 5, 6, 7, 8)],
         ])
         svg = ElementTree.fromstring(result["svg"])
         self.assertNotIn("Кухня", result["svg"])
         layer = svg.find("{*}g[@id='room-statuses']")
         self.assertEqual({p.get("fill"): p.get("d") for p in layer}, {
-            "#1E9A78": "M1 3h1v1h-1z", "#DEA044": "M1 2h1v1h-1zM0 3h1v1h-1z",
-            "#DE8079": "M0 2h1v1h-1z",
+            "#1E9A78": "M1 4h1v1h-1z", "#DEA044": "M1 3h1v1h-1zM0 4h1v1h-1z",
+            "#DE8079": "M0 3h1v1h-1z",
         })
         self.assertTrue(result["has_path"])
         archive.completed_segments = archive.skipped_segments = archive.blocked_segments = None

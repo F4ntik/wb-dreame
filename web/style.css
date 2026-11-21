@@ -138,6 +138,7 @@ button:disabled { cursor: default; opacity: .52; }
 .map-legend > .path::before { height: .18rem; vertical-align: .18em; }
 .map-legend > .robot::before { width: .65rem; height: .65rem; border-radius: 50%; }
 .map-legend > [data-room-status] { --legend-color: var(--room-status-color); color: var(--room-status-ink); }
+.map-history-link { min-height: 44px; margin-top: .4rem; color: var(--accent); font-size: .82rem; }
 .room-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 9rem), 1fr)); gap: .45rem; margin-top: .7rem; }
 .room-list:empty { display: none; }
 .reclean-controls { display: flex; align-items: center; flex-wrap: wrap; gap: .4rem .7rem; margin-top: .7rem; }
