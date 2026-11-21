@@ -28,10 +28,13 @@ class RecleanTest(unittest.TestCase):
         self.report = NS(date=datetime.now().replace(microsecond=0), object_name="archive", key="fixture",
                          blocked_segments={2: [ObstacleReason.BLOCKED_BY_DOOR]}, multiple_cleaning_time="123456",
                          cleanup_method=CleanupMethod.DEFAULT_MODE, mopping_mode=0, second_mopping=0)
-        rooms = {2: NS(unique_id="room-id")}
+        dim = NS(left=0, top=0, width=2, height=2, grid_size=50)
+        floor = np.array([[2, 2], [2, 0]], dtype=np.uint8)
         self.archive = NS(history_map=True, empty_map=False, map_id=32, saved_map_id=7, frame_id=3, timestamp_ms=42,
                           multiple_cleaning_time=None, blocked_segments=self.report.blocked_segments.copy(),
-                          segments=rooms, cleaning_map_data=None, cleaned_segments=None, dos=None)
+                          segments={2: NS(unique_id="room-id")}, cleaning_map_data=None, cleaned_segments=None, dos=None,
+                          version=3, dimensions=dim, pixel_type=floor, rotation=0)
+        self.saved = NS(version=3, dimensions=dim, pixel_type=floor.copy(), segments={2: NS(unique_id="room-id")})
         self.robot = Robot({"model": "dreame.vacuum.r9419a", "did": "fixture"}, self.directory)
         self.device = self.robot.device = NS(info=NS(model=self.robot.account["model"]),
             status=NS(_cleaning_history=[self.report], current_map=NS(map_id=37, saved_map_id=7), has_temporary_map=False),
@@ -41,7 +44,7 @@ class RecleanTest(unittest.TestCase):
             refresh_cleaning_records=Mock(return_value=True),
             _protocol=NS(cloud=NS(device_id="fixture"), action=Mock(side_effect=self.action)))
         self.robot._command_map_key = Mock(return_value="current-map")
-        self.robot.saved_map = Mock(return_value=NS(segments=rooms))
+        self.robot.saved_map = Mock(return_value=self.saved)
         self.robot.observe = Mock(side_effect=self.observe)
         self.request = {"request_id": "reclean-1", "action": "reclean", "timestamp": int(self.report.date.timestamp()),
                         "map_id": self.plan["id"], "revision": self.plan["revision"]}
@@ -99,13 +102,23 @@ class RecleanTest(unittest.TestCase):
     def test_native_dirty_area_changes_in_the_same_archive_invalidate_confirmation(self):
         self.report.cleanup_method = CleanupMethod.CLEANGENIUS
         self.report.second_mopping = 2
+        self.report.multiple_cleaning_time = ""
         self.report.blocked_segments = self.archive.blocked_segments = None
         self.archive.cleaned_segments = [2]
-        pixels = np.array([[MapPixelType.DIRTY_AREA, 0]], dtype=np.uint8)
+        pixels = np.array([[MapPixelType.DIRTY_AREA, 0], [0, 0]], dtype=np.uint8)
         self.archive.cleaning_map_data = NS(has_dirty_area=True, pixel_type=pixels,
-                                           dimensions=NS(left=0, top=0, width=1, height=2, grid_size=50))
+                                           dimensions=self.archive.dimensions, rotation=0,
+                                           has_cleaned_area=False, history_map=True, cleaning_map=True)
         preview = self.bridge.web_job(self.request, preview=True)
         self.assertEqual(preview["targets"], {"rooms": [], "dirty_areas": True})
+        self.saved.pixel_type[0, 0] = 3
+        with self.assertRaisesRegex(Refused, "Загрязнённые участки .* изменились"):
+            self.bridge.web_job(self.request, preview=False)
+        self.saved.pixel_type[0, 0] = 2
+        self.saved.pixel_type[1, 1] = 2
+        with self.assertRaisesRegex(Refused, "Границы участков .* изменились"):
+            self.bridge.web_job(self.request, preview=False)
+        self.saved.pixel_type[1, 1] = 0
         pixels[0, :] = [0, MapPixelType.DIRTY_AREA]
         with self.assertRaisesRegex(Refused, "условия доуборки изменились"):
             self.bridge.web_job(self.request, preview=False)
@@ -116,7 +129,24 @@ class RecleanTest(unittest.TestCase):
         params = self.device._protocol.action.call_args.args[2]
         self.assertEqual(params[0]["value"], DS.CLEANING.value)
         self.assertEqual(json.loads(params[1]["value"]), {
-            "CleanArea": [2], "BigArea": [], "MopAgain": 1, "timestamp": "123456"})
+            "CleanArea": [2], "BigArea": [], "MopAgain": 1, "timestamp": ""})
+
+    def test_no_vendor_timestamp_or_room_uids_uses_exact_absolute_room_cells(self):
+        self.report.multiple_cleaning_time = None
+        self.archive.segments[2].unique_id = self.saved.segments[2].unique_id = None
+        self.saved.dimensions = NS(left=-50, top=0, width=3, height=2, grid_size=50)
+        self.saved.pixel_type = np.array([[0, 0], [102, 2], [2, 0]], dtype=np.uint8)
+        self.assertEqual(self.bridge.web_job(self.request, preview=True)["targets"], {"rooms": [2], "dirty_areas": False})
+        self.saved.pixel_type[2, 1] = 2
+        with self.assertRaisesRegex(Refused, "Границы участков .* изменились"):
+            self.bridge.web_job(self.request, preview=False)
+        self.saved.pixel_type[2, 1] = 0
+        self.bridge.web_job(self.request, preview=True)
+        self.assertEqual(self.bridge.web_job(self.request, preview=False)["status"], "acknowledged")
+        params = self.device._protocol.action.call_args.args[2]
+        self.assertEqual(json.loads(params[1]["value"]), {"selects": [[2, 1, 1, 2, 1]], "timestamp": ""})
+        with self.assertRaisesRegex(Refused, "уже запрашивалась"):
+            self.bridge.web_job(self.request | {"request_id": "new-id"}, preview=False)
 
     def test_does_not_use_cached_report_when_cloud_fails_or_latest_report_changes(self):
         self.bridge.web_job(self.request, preview=True)
