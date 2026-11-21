@@ -232,62 +232,78 @@
     </div>
 
     <div id="view-schedules" role="tabpanel" aria-labelledby="tab-schedules" hidden>
-      <details id="schedules" class="card detail-card">
-        <summary>Расписания</summary>
-        <div class="detail-content">
-          <button id="schedules-refresh" type="button">Прочитать расписания</button>
-          <p id="schedules-result" class="job-result" role="status" hidden></p>
-          <section id="schedules-charging" hidden>
-            <h3>Зарядка в непиковые часы</h3>
-            <p id="schedules-charging-note" class="muted field-hint"></p>
-            <form id="schedules-charging-form" hidden>
-              <fieldset>
-                <legend>Интервал по времени пылесоса</legend>
-                <p><label><input type="checkbox" name="enabled"> Использовать расписание зарядки</label></p>
-                <p>
-                  <label>Начало <input type="time" name="start" required></label>
-                  <label>Конец <input type="time" name="end" required></label>
-                </p>
-                <button type="submit" disabled>Сохранить интервал</button>
+      <div id="schedules">
+        <div class="schedule-heading">
+          <div>
+            <h2>Расписание</h2>
+            <p class="muted">Время указано по часам пылесоса</p>
+          </div>
+          <button id="schedules-refresh" type="button">Обновить</button>
+        </div>
+        <p id="schedules-result" class="job-result" role="status" hidden></p>
+        <div class="schedule-grid">
+          <section id="schedules-cleaning" class="card schedule-card" aria-labelledby="schedules-cleaning-heading" hidden>
+            <h3 id="schedules-cleaning-heading">Уборки</h3>
+            <p id="schedules-cleaning-note" class="muted field-hint"></p>
+            <div id="schedules-cleaning-list"></div>
+            <form id="schedules-cleaning-form" class="schedule-editor" aria-labelledby="schedules-cleaning-title" hidden>
+              <h4 id="schedules-cleaning-title"></h4>
+              <fieldset id="schedules-cleaning-fields" aria-label="Параметры задания">
+                <div class="schedule-fields">
+                  <label>Время запуска <input type="time" name="time" required></label>
+                  <label id="schedules-cleaning-enable" class="schedule-check"><input type="checkbox" name="enabled"> Задание включено</label>
+                </div>
+                <fieldset id="schedules-cleaning-days">
+                  <legend>Дни недели</legend>
+                  <div class="schedule-days">
+                    <label><input type="checkbox" name="weekday" value="1" aria-label="Понедельник"><span>Пн</span></label>
+                    <label><input type="checkbox" name="weekday" value="2" aria-label="Вторник"><span>Вт</span></label>
+                    <label><input type="checkbox" name="weekday" value="3" aria-label="Среда"><span>Ср</span></label>
+                    <label><input type="checkbox" name="weekday" value="4" aria-label="Четверг"><span>Чт</span></label>
+                    <label><input type="checkbox" name="weekday" value="5" aria-label="Пятница"><span>Пт</span></label>
+                    <label><input type="checkbox" name="weekday" value="6" aria-label="Суббота"><span>Сб</span></label>
+                    <label><input type="checkbox" name="weekday" value="0" aria-label="Воскресенье"><span>Вс</span></label>
+                  </div>
+                </fieldset>
               </fieldset>
+              <p id="schedules-cleaning-edit-note" class="muted field-hint" hidden></p>
+              <p id="schedules-cleaning-result" class="job-result schedule-result" role="status" hidden></p>
+              <div class="schedule-actions">
+                <button class="primary" type="submit">Сохранить</button>
+                <button id="schedules-cleaning-cancel" type="button">Отмена</button>
+                <button id="schedules-cleaning-copy" type="button">Сделать копию</button>
+                <button id="schedules-cleaning-delete" type="button">Удалить</button>
+              </div>
             </form>
           </section>
-          <section id="schedules-cleaning" hidden>
-            <h3>Расписание уборок</h3>
-            <p id="schedules-cleaning-note" class="muted field-hint"></p>
-            <ul id="schedules-cleaning-list" hidden></ul>
-            <form id="schedules-cleaning-form" hidden>
-              <fieldset>
-                <legend id="schedules-cleaning-title">Задание уборки</legend>
-                <div id="schedules-cleaning-fields">
-                  <p>
-                    <label>Время пылесоса <input type="time" name="time" required></label>
-                    <label id="schedules-cleaning-enable"><input type="checkbox" name="enabled"> Выполнять уборку</label>
-                  </p>
-                  <fieldset id="schedules-cleaning-days">
-                    <legend>Дни недели</legend>
-                    <p>
-                      <label><input type="checkbox" name="weekday" value="1"> Пн</label>
-                      <label><input type="checkbox" name="weekday" value="2"> Вт</label>
-                      <label><input type="checkbox" name="weekday" value="3"> Ср</label>
-                      <label><input type="checkbox" name="weekday" value="4"> Чт</label>
-                      <label><input type="checkbox" name="weekday" value="5"> Пт</label>
-                      <label><input type="checkbox" name="weekday" value="6"> Сб</label>
-                      <label><input type="checkbox" name="weekday" value="0"> Вс</label>
-                    </p>
-                  </fieldset>
+          <section id="schedules-charging" class="card schedule-card" aria-labelledby="schedules-charging-heading" hidden>
+            <h3 id="schedules-charging-heading">Зарядка в непиковые часы</h3>
+            <div id="schedules-charging-summary" class="schedule-row" hidden>
+              <div>
+                <div id="schedules-charging-time" class="schedule-time"></div>
+                <p id="schedules-charging-state"></p>
+              </div>
+              <button id="schedules-charging-edit" type="button" aria-label="Изменить расписание зарядки">Изменить</button>
+            </div>
+            <p id="schedules-charging-note" class="muted field-hint" hidden></p>
+            <form id="schedules-charging-form" class="schedule-editor" aria-labelledby="schedules-charging-heading" hidden>
+              <fieldset aria-label="Параметры зарядки">
+                <label class="schedule-check"><input type="checkbox" name="enabled"> По расписанию</label>
+                <div class="schedule-fields">
+                  <label>Начало <input type="time" name="start" required></label>
+                  <label>Конец <input type="time" name="end" required></label>
                 </div>
-                <p id="schedules-cleaning-edit-note" class="muted field-hint" hidden></p>
-                <p>
-                  <button type="submit">Сохранить уборку</button>
-                  <button id="schedules-cleaning-delete" type="button">Удалить задание</button>
-                  <button id="schedules-cleaning-cancel" type="button">Закрыть</button>
-                </p>
+                <p id="schedules-charging-next-day" class="muted field-hint" hidden>Окончание на следующий день.</p>
               </fieldset>
+              <p id="schedules-charging-result" class="job-result schedule-result" role="status" hidden></p>
+              <div class="schedule-actions">
+                <button class="primary" type="submit">Сохранить</button>
+                <button id="schedules-charging-cancel" type="button">Отмена</button>
+              </div>
             </form>
           </section>
         </div>
-      </details>
+      </div>
     </div>
 
     <div id="view-settings" role="tabpanel" aria-labelledby="tab-settings" hidden>
