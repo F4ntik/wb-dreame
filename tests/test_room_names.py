@@ -147,4 +147,10 @@ class RoomNamesTest(unittest.TestCase):
         legacy.write_text(contents, encoding="utf-8")
         with self.assertRaises(Refused):
             room_aliases(self.config, self.directory)
+        (self.directory / "config.json").write_text(json.dumps(self.config), encoding="utf-8")
+        with self.assertLogs(level="WARNING"):
+            available = self.through_cli("confed-tojson", self.config)
+            self.assertEqual(available["rooms"], [])
+            available["allow_commands"] = False
+            self.assertEqual(self.through_cli("confed-fromjson", available), {**self.config, "allow_commands": False})
         self.assertEqual(legacy.read_text(encoding="utf-8"), contents)

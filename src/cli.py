@@ -55,13 +55,14 @@ def main():
     elif args.action in ("confed-tojson", "confed-fromjson"):
         from room_names import confed_save, confed_view, read_room_catalog, room_aliases
         form = json.load(sys.stdin.buffer)
-        rooms = read_room_catalog()
-        if args.action == "confed-tojson":
-            config = validate(form)
-            result = confed_view(config, rooms, room_aliases(config))
-        else:
-            config = validate(read(CONFIG))
-            result = confed_save(form, config, rooms, room_aliases(config))
+        saving = args.action == "confed-fromjson"
+        config = validate(read(CONFIG) if saving else form)
+        try:
+            rooms, aliases = read_room_catalog(), room_aliases(config)
+        except Refused as exc:
+            logging.warning("%s", exc)
+            rooms, aliases = [], {}
+        result = confed_save(form, config, rooms, aliases) if saving else confed_view(config, rooms, aliases)
         sys.stdout.buffer.write((json.dumps(result, ensure_ascii=False, indent=2) + "\n").encode("utf-8"))
     elif args.action == "install-panel":
         from registration import register
