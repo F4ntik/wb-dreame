@@ -40,6 +40,7 @@ class Bridge:
         self.title = "Dreame"
         self.io_lock = threading.Lock()
         self.allow_commands = False
+        self.panel_navigation = "auto"
         self.jobs = None
         self.underlay = Underlay(DATA)
         self.room_names = RoomNames()
@@ -176,7 +177,7 @@ class Bridge:
         if plan:
             plan = {key: value for key, value in plan.items() if key not in ("_room_keys", "_footprint_bits")}
         return {**latest, "state_title": STATE_LABELS.get(latest["state"], latest["state"]), "model": self.title, "allow_commands": self.commands_enabled(),
-                "map": plan, "overlays": overlays, "live_frame_at_ms": frame_time, "live_room_id": room_id,
+                "panel_navigation": self.panel_navigation, "map": plan, "overlays": overlays, "live_frame_at_ms": frame_time, "live_room_id": room_id,
                 "live_room_status": room_status,
                 "last_job": last, "underlay": drawing, "room_names": names,
                 "reclean_attempt": reclean_attempt["status"] if reclean_attempt else None}
@@ -345,6 +346,7 @@ class Bridge:
         account = read(Path(os.environ["CREDENTIALS_DIRECTORY"]) / "account.json")
         self.title = MODELS.get(account.get("model"), "Dreame")
         self.allow_commands = config["allow_commands"]
+        self.panel_navigation = config.get("panel_navigation", "auto")
         self.jobs = Jobs(STATE)
         try:
             aliases = room_aliases(config)

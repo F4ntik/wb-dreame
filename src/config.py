@@ -57,8 +57,10 @@ def valid_room_names(names):
 
 
 def validate(c):
-    if not isinstance(c, dict) or not DEFAULT.keys() <= c.keys() <= DEFAULT.keys() | {"room_names"}:
+    if not isinstance(c, dict) or not DEFAULT.keys() <= c.keys() <= DEFAULT.keys() | {"room_names", "panel_navigation"}:
         raise Refused("Проверьте поля конфигурации")
+    if c.get("panel_navigation", "auto") not in ("auto", "top", "left"):
+        raise Refused("Выберите расположение разделов панели в конфигураторе WB")
     if not valid_room_names(c.get("room_names", {})):
         raise Refused("Проверьте сохранённые названия комнат")
     if type(c["allow_commands"]) is not bool or not integer(c["poll_seconds"], 15, 300):

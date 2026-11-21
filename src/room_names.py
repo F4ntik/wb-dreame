@@ -89,7 +89,7 @@ def read_room_catalog(path=ROOM_CATALOG):
 def confed_view(config, rooms, aliases):
     revision = sha256(json.dumps([config, aliases], sort_keys=True).encode()).hexdigest()
     return {"poll_seconds": config["poll_seconds"], "allow_commands": config["allow_commands"],
-            "edit_revision": revision,
+            "panel_navigation": config.get("panel_navigation", "auto"), "edit_revision": revision,
             "rooms": [{**room, "name": aliases.get(room["key"], "")} for room in rooms]}
 
 
@@ -115,6 +115,10 @@ def confed_save(form, config, rooms, aliases):
         else:
             raise Refused("Введите название длиной от 1 до 48 символов без переносов строк.")
     saved = {**config, "poll_seconds": form["poll_seconds"], "allow_commands": form["allow_commands"]}
+    if form["panel_navigation"] == "auto":
+        saved.pop("panel_navigation", None)
+    else:
+        saved["panel_navigation"] = form["panel_navigation"]
     if names != aliases:
         saved["room_names"] = names
     return validate(saved)

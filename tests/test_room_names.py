@@ -77,6 +77,21 @@ class RoomNamesTest(unittest.TestCase):
         self.assertEqual(web["room_names"]["2"]["alias"], "Прихожая")
         self.assertEqual(web["map"]["rooms"]["2"], "Коридор")
 
+    def test_navigation_round_trip_preserves_legacy_config_and_rejects_unknown_layout(self):
+        original = self.config.copy()
+        form = self.through_cli("confed-tojson", original)
+        self.assertEqual(form["panel_navigation"], "auto")
+        for placement in ("left", "top", "auto"):
+            form["panel_navigation"] = placement
+            path = self.directory / "config.json"
+            path.write_text(json.dumps(self.config), encoding="utf-8")
+            self.config = self.through_cli("confed-fromjson", form)
+            form = self.through_cli("confed-tojson", self.config)
+            self.assertEqual(form["panel_navigation"], placement)
+        self.assertEqual(self.config, original)
+        with self.assertRaises(Refused):
+            confed_save({**form, "panel_navigation": "unknown"}, self.config, [], {})
+
     def test_new_room_discovery_and_stale_edit_rejection(self):
         self.saved.segments.pop(2)
         before = self.snapshot()
