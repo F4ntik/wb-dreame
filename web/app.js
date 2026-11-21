@@ -202,7 +202,7 @@ function targetText() {
   if (target === 'all') return 'Вся доступная площадь';
   if (target === 'rooms') return rooms.size ? [...rooms].map((id, index) => `${index + 1}. ${map.rooms[id]}`).join(' · ')
     : 'Выберите комнаты на карте или в списке.';
-  if (cleanGenius > 0) return 'При включённом CleanGenius зоны недоступны. Выберите комнаты или всю квартиру.';
+  if (cleanGenius > 0) return 'Выделение можно сохранить. Для запуска уборки зон выключите CleanGenius.';
   if (!zones.length) return 'Выделите зону на карте или введите координаты.';
   return jobZones() ? `Зон в задании — ${zones.length}` : 'Проверьте отмеченные зоны.';
 }
@@ -364,9 +364,9 @@ function renderZoneFields(drawZone) {
 
 function renderJob() {
   scenarioPanel?.render();
-  const drawZone = target === 'zone' && !(cleanGenius > 0);
+  const drawZone = target === 'zone';
   if (!drawZone) stopZoneDrag();
-  mapHost.dataset.mode = target === 'zone' && !drawZone ? 'rooms' : target;
+  mapHost.dataset.mode = target;
   byId('zone-fields').hidden = !drawZone;
   renderZoneFields(drawZone);
   byId('tuning').hidden = target === 'all' || cleanGenius > 0;
@@ -395,7 +395,7 @@ function renderJob() {
   submit.disabled = busy || Boolean(drag) || preferenceBusy === 'cleangenius' || awaitingMode !== null || telemetry.online !== true || !prepared();
   label(submit, telemetry.allow_commands === true ? 'Начать уборку' : 'Проверить задание');
   label(byId('submit-hint'), preferenceBusy === 'cleangenius' || awaitingMode !== null ? 'Ждём обновления режима CleanGenius.' :
-    target === 'zone' && !drawZone ? '' : telemetry.online !== true ? 'Робот должен быть на связи.' : !map
+    telemetry.online !== true ? 'Робот должен быть на связи.' : !map
     ? 'Для задания нужна сохранённая карта.' : telemetry.allow_commands === true
       ? 'Перед запуском появится подтверждение.' : 'Проверка не запускает пылесос.');
   motion.hidden = telemetry.allow_commands !== true;
@@ -1346,10 +1346,8 @@ scenarioPanel = scenarios({
   map: () => map, online: () => telemetry.online === true, busy: () => busy || Boolean(drag) || Boolean(preferenceBusy) || modal.open,
   zones: () => target === 'zone' ? jobZones() : null,
   pick: saved => {
-    if (cleanGenius > 0) { notify('Для зон выключите CleanGenius в задании уборки.', false); return false; }
     changeTarget('zone');
     if (saved && !replaceZoneDraft(saved)) return false;
-    if (!saved) replaceZoneDraft([]);
     byId('map').scrollIntoView({block: 'center'});
     notify(saved ? 'Зоны входа выбраны. Проверьте их на карте и нажмите «Начать уборку».'
       : 'Обведите участок у входа, затем нажмите «Сохранить выделение» в сценариях.', false);
