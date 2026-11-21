@@ -225,7 +225,7 @@
                 <div id="schedules-cleaning-fields">
                   <p>
                     <label>Время пылесоса <input type="time" name="time" required></label>
-                    <label><input type="checkbox" name="enabled"> Выполнять уборку</label>
+                    <label id="schedules-cleaning-enable"><input type="checkbox" name="enabled"> Выполнять уборку</label>
                   </p>
                   <fieldset id="schedules-cleaning-days">
                     <legend>Дни недели</legend>
@@ -240,7 +240,7 @@
                     </p>
                   </fieldset>
                 </div>
-                <p id="schedules-cleaning-edit-note" class="muted field-hint" hidden>Измените параметры этого задания в Dreamehome.</p>
+                <p id="schedules-cleaning-edit-note" class="muted field-hint" hidden></p>
                 <p>
                   <button type="submit">Сохранить уборку</button>
                   <button id="schedules-cleaning-delete" type="button">Удалить задание</button>

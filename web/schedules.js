@@ -18,6 +18,7 @@ let current = null;
 let cleaning = null;
 let editing = null;
 let editOpener = null;
+let copying = false;
 let writable = false;
 let busy = false;
 let opened = false;
@@ -60,9 +61,10 @@ function showCleaning(data) {
   editOpener = null;
   cleaningList.replaceChildren();
   cleaningList.hidden = !data?.tasks?.length;
-  const create = 'Новые задания, комнаты и режим уборки настраиваются в Dreamehome.';
+  const create = 'Чтобы сделать копию, сначала создайте еженедельное задание в Dreamehome.';
   const hint = !data?.can_edit ? 'Изменения доступны в Dreamehome.'
-    : !writable ? 'Для изменений включите управление в настройках драйвера.' : create;
+    : !writable ? 'Для изменений включите управление в настройках драйвера.'
+      : 'Комнаты и режим уборки настраиваются в Dreamehome.';
   find('cleaning-note').textContent = data?.reason || (cleaningList.hidden ? `Заданий пока нет. ${create}` : hint);
   for (const task of data?.tasks || []) {
     const item = document.createElement('li');
@@ -78,20 +80,34 @@ function showCleaning(data) {
       button.addEventListener('click', () => editCleaning(task, button));
       item.append(' ', button);
     }
+    if (writable && task.copyable) {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.textContent = 'Создать копию';
+      button.setAttribute('aria-label', `Создать копию задания № ${task.id} на ${task.time}`);
+      button.addEventListener('click', () => editCleaning(task, button, true));
+      item.append(' ', button);
+    }
     cleaningList.append(item);
   }
 }
 
-function editCleaning(task, button) {
+function editCleaning(task, button, copy = false) {
   editing = task;
   editOpener = button;
-  find('cleaning-title').textContent = `Задание № ${task.id} на ${task.time}`;
+  copying = copy;
+  find('cleaning-title').textContent = copy ? `Копия задания № ${task.id}` : `Задание № ${task.id} на ${task.time}`;
   cleaningFields.hidden = !task.editable;
-  find('cleaning-edit-note').hidden = task.editable;
+  find('cleaning-enable').hidden = copy;
+  const note = find('cleaning-edit-note');
+  note.hidden = task.editable && !copy;
+  note.textContent = copy ? 'Копия сохранит комнаты и режим уборки. Новое задание будет выключено.'
+    : 'Измените параметры этого задания в Dreamehome.';
   cleaningSave.hidden = !task.editable;
-  cleaningDelete.hidden = !cleaning.can_delete;
+  cleaningSave.textContent = copy ? 'Создать задание' : 'Сохранить уборку';
+  cleaningDelete.hidden = copy || !cleaning.can_delete;
   cleaningDays.hidden = task.once;
-  cleaningForm.elements.time.value = task.time;
+  cleaningForm.elements.time.value = copy ? '' : task.time;
   cleaningForm.elements.enabled.checked = task.enabled;
   for (const input of weekdays) input.checked = task.weekdays?.[input.value] === '1';
   cleaningForm.hidden = false;
@@ -109,7 +125,7 @@ async function request(options) {
   let data;
   try {
     response = await fetch('./api/schedules', {
-      cache: 'no-store', signal: AbortSignal.timeout(25000), ...options,
+      cache: 'no-store', signal: AbortSignal.timeout(30000), ...options,
     });
     data = await response.json();
   } catch {
@@ -201,7 +217,8 @@ async function saveCleaning(operation, fields = {}) {
 cleaningForm.addEventListener('submit', event => {
   event.preventDefault();
   if (!editing?.editable || !writable || busy) return;
-  const fields = { enabled: cleaningForm.elements.enabled.checked, time: cleaningForm.elements.time.value };
+  const fields = { time: cleaningForm.elements.time.value };
+  if (!copying) fields.enabled = cleaningForm.elements.enabled.checked;
   if (!editing.once) {
     const mask = Array(7).fill('0');
     for (const input of weekdays) if (input.checked) mask[input.value] = '1';
@@ -212,11 +229,11 @@ cleaningForm.addEventListener('submit', event => {
       return;
     }
   }
-  saveCleaning('update', fields);
+  saveCleaning(copying ? 'clone' : 'update', fields);
 });
 
 cleaningDelete.addEventListener('click', () => {
-  if (!editing || !writable || busy || !cleaning.can_delete) return;
+  if (!editing || copying || !writable || busy || !cleaning.can_delete) return;
   if (window.confirm(`Удалить задание № ${editing.id} на ${editing.time}?`)) saveCleaning('delete');
 });
 

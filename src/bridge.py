@@ -238,7 +238,9 @@ class Bridge:
             with check_writes_with(self.commands_enabled):
                 if request.get("kind") == "cleaning":
                     cleaning = save_cleaning_schedule(self.cloud, request)
-                    return {"cleaning": cleaning, "message": "Расписание уборок подтверждено роботом"}
+                    message = ("Робот подтвердил создание выключенного задания" if request["operation"] == "clone"
+                               else "Расписание уборок подтверждено роботом")
+                    return {"cleaning": cleaning, "message": message}
                 charging = save_charging_schedule(self.cloud, request)
             return {"charging": charging, "message": "Интервал зарядки подтверждён роботом"}
         finally:

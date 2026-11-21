@@ -3,6 +3,7 @@ import json
 import re
 from contextvars import ContextVar
 from hashlib import sha256
+from time import sleep
 
 from config import Refused, integer
 from preferences import DND_TIME, WRITE, _check_binding, _read
@@ -99,13 +100,15 @@ def _can_delete(robot):
 def _cleaning(robot, did, raw):
     can_edit = robot.account["model"] == EDIT_MODEL
     rows = _tasks(raw)
+    slot_available = max(rows, default=0) < MAX_TASK_ID
     tasks = []
     for task_id, row in sorted(rows.items(), key=lambda item: (item[1][2], item[0])):
         weekdays = row[3].zfill(7) if DAY_MASK.fullmatch(row[3]) else None
         tasks.append({"id": task_id, "enabled": row[1] in ("1", "2"), "invalid": row[1] == "3",
                       "time": row[2], "once": row[4] == "0", "weekdays": weekdays,
                       "days": weekdays.count("1") if weekdays is not None else None,
-                      "editable": can_edit and _editable(row)})
+                      "editable": can_edit and _editable(row),
+                      "copyable": can_edit and slot_available and row[4] == "1" and _editable(row)})
     return {"tasks": tasks, "revision": _revision(did, raw), "can_edit": can_edit,
             "can_delete": can_edit and _can_delete(robot)}
 
@@ -189,13 +192,15 @@ def delete_write_permitted(method, params):
     did, task_id = expected
     if (params != {"did": did, **DELETE_TASK, "in": [{"piid": MAPPING[P.SCHEDULE_ID]["piid"], "value": task_id}]}
             or any(type(params[key]) is not int for key in ("siid", "aiid"))
-            or any(type(params["in"][0][key]) is not int for key in ("piid", "value"))):
+            or type(params["in"][0]["piid"]) is not int):
         return False
     DELETE_WRITE.set(None)
     return True
 
 
 def _delete_task(protocol, did, task_id):
+    # Some firmware acknowledges the action even when ignoring a numeric ID.
+    task_id = str(task_id)
     token = DELETE_WRITE.set((did, task_id))
     try:
         protocol.action(DELETE_TASK["siid"], DELETE_TASK["aiid"],
@@ -206,24 +211,40 @@ def _delete_task(protocol, did, task_id):
         DELETE_WRITE.reset(token)
 
 
+def _copy_task(rows, template, time, weekdays):
+    # The schedule setter allocates the next ID after the highest occupied slot.
+    task_id = max(rows) + 1
+    if task_id > MAX_TASK_ID or template[4] != "1" or not _editable(template):
+        raise Refused("Создайте задание в Dreamehome.")
+    for row in rows.values():
+        if row[2] != time:
+            continue
+        if (row[4] == "0" or not DAY_MASK.fullmatch(row[3]) or "1" not in row[3]
+                or any(a == b == "1" for a, b in zip(weekdays, row[3].zfill(7)))):
+            raise Refused("На это время уже есть задание. Выберите другое время или дни.")
+    rows[task_id] = [str(task_id), "0", time, weekdays, *template[4:]]
+
+
 def save_cleaning_schedule(robot, payload):
     fields = {"kind", "operation", "id", "revision"}
     task_id, revision, operation = payload.get("id"), payload.get("revision"), payload.get("operation")
-    if not integer(task_id, 1, MAX_TASK_ID) or not _valid_revision(revision):
-        raise Refused("Проверьте поля расписания уборки.")
-    if operation == "delete" and payload.keys() == fields:
-        deleting = True
-    elif (operation == "update" and payload.keys() - {"weekdays"} == (fields | {"enabled", "time"})
-          and type(payload["enabled"]) is bool and _time(payload["time"])):
-        deleting = False
-    else:
+    if operation == "clone":
+        fields.update(("time", "weekdays"))
+    elif operation == "update":
+        fields.update(("enabled", "time"))
+        if "weekdays" in payload:
+            fields.add("weekdays")
+    if (operation not in ("clone", "update", "delete") or payload.keys() != fields
+            or not integer(task_id, 1, MAX_TASK_ID) or not _valid_revision(revision)
+            or (operation != "delete" and not _time(payload["time"]))
+            or (operation == "update" and type(payload["enabled"]) is not bool)):
         raise Refused("Проверьте поля расписания уборки.")
     weekdays = payload.get("weekdays")
     if "weekdays" in payload and (type(weekdays) is not str or len(weekdays) != 7
                                   or not DAY_MASK.fullmatch(weekdays) or "1" not in weekdays):
         raise Refused("Выберите хотя бы один день недели.")
-    if robot.account["model"] != EDIT_MODEL or (deleting and not _can_delete(robot)):
-        raise Refused("Пылесос не поддерживает это действие через панель. Откройте Dreamehome.")
+    if robot.account["model"] != EDIT_MODEL or (operation == "delete" and not _can_delete(robot)):
+        raise Refused("Для этой модели действие доступно в Dreamehome.")
 
     prop = P.SCHEDULE
     protocol, did, read = _reader(robot)
@@ -234,16 +255,19 @@ def save_cleaning_schedule(robot, payload):
     row = expected.get(task_id)
     if row is None:
         raise Refused(STALE)
-    if deleting:
+    if operation == "delete":
         del expected[task_id]
         _delete_task(protocol, did, task_id)
     else:
-        if not _editable(row) or (weekdays is not None and row[4] == "0"):
-            raise Refused("Параметры этого задания можно изменить в Dreamehome.")
-        row[1] = "1" if payload["enabled"] else "0"
-        row[2] = payload["time"]
-        if weekdays is not None and weekdays != row[3].zfill(7):
-            row[3] = weekdays
+        if operation == "clone":
+            _copy_task(expected, row, payload["time"], weekdays)
+        else:
+            if not _editable(row) or (weekdays is not None and row[4] == "0"):
+                raise Refused("Параметры этого задания можно изменить в Dreamehome.")
+            row[1] = "1" if payload["enabled"] else "0"
+            row[2] = payload["time"]
+            if weekdays is not None and weekdays != row[3].zfill(7):
+                row[3] = weekdays
         wire = ";".join("-".join(row) for row in expected.values())
         if wire == before:
             return _cleaning(robot, did, before)
@@ -253,6 +277,9 @@ def save_cleaning_schedule(robot, payload):
 
     try:
         after = read(prop, readback=True)
+        if after == before:
+            sleep(0.5)  # The robot may report the previous list just after acknowledging the write.
+            after = read(prop, readback=True)
         if _tasks(after) == expected:
             return _cleaning(robot, did, after)
     except Refused:

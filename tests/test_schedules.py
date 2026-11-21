@@ -46,12 +46,15 @@ class SchedulesTest(unittest.TestCase):
     def action(self, siid, aiid, args, *, retry_count):
         self.assertEqual((siid, aiid, retry_count), (8, 1, 0))
         task_id = args[0]["value"]
+        self.assertIs(type(task_id), str)
         self.assertEqual(args, [{"piid": 3, "value": task_id}])
         message = {"did": "fixture", "siid": siid, "aiid": aiid, "in": args}
         with self.assertRaises(Refused):
             guard("action", {**message, "did": "unbound"})
         with self.assertRaises(Refused):
-            guard("action", {**message, "in": [{"piid": 3, "value": task_id + 1}]})
+            guard("action", {**message, "in": [{"piid": 3, "value": int(task_id)}]})
+        with self.assertRaises(Refused):
+            guard("action", {**message, "in": [{"piid": 3, "value": str(1 + int(task_id))}]})
         guard("action", message)
         with self.assertRaises(Refused):
             guard("action", message)
@@ -80,9 +83,9 @@ class SchedulesTest(unittest.TestCase):
         self.assertFalse(state["charging"]["enabled"])
         self.assertEqual(state["cleaning"]["tasks"], [
             {"id": 24, "enabled": False, "invalid": True, "time": "09:00", "once": True, "days": 0,
-             "weekdays": "0000000", "editable": False},
+             "weekdays": "0000000", "editable": False, "copyable": False},
             {"id": 23, "enabled": True, "invalid": False, "time": "21:30", "once": False, "days": 2,
-             "weekdays": "1000010", "editable": True},
+             "weekdays": "1000010", "editable": True, "copyable": True},
         ])
         self.values[P.SCHEDULE] = ""
         self.assertEqual(self.call()["cleaning"]["tasks"], [])
@@ -186,7 +189,7 @@ class SchedulesTest(unittest.TestCase):
     def test_delete_targets_exact_task_and_checks_remaining_records(self):
         payload = self.delete_task(24)
         with self.assertRaises(Refused):
-            guard("action", {"did": "fixture", "siid": 8, "aiid": 1, "in": [{"piid": 3, "value": 24}]})
+            guard("action", {"did": "fixture", "siid": 8, "aiid": 1, "in": [{"piid": 3, "value": "24"}]})
         result = self.call(payload)["cleaning"]
         self.assertEqual([task["id"] for task in result["tasks"]], [23])
         self.assertEqual(self.values[P.SCHEDULE], "23-1-21:30-1000010-1-7-1-2-0-extra")
@@ -194,6 +197,43 @@ class SchedulesTest(unittest.TestCase):
             self.call(payload)
         self.protocol.action.assert_called_once()
         self.protocol.set_property.assert_not_called()
+
+    def test_create_disabled_copy_preserves_everything_and_prevents_overlapping_days(self):
+        before = self.values[P.SCHEDULE]
+        payload = {"kind": "cleaning", "operation": "clone", "id": 23, "time": "21:30", "weekdays": "0101100",
+                   "revision": self.call()["cleaning"]["revision"]}
+        for bad, message in (({**payload, "weekdays": "1100000"}, "уже есть"),
+                             ({**payload, "id": 24}, "Dreamehome"),
+                             ({**payload, "enabled": True}, "Проверьте поля")):
+            with self.subTest(bad=bad), self.assertRaisesRegex(Refused, message):
+                self.call(bad)
+        self.protocol.set_property.assert_not_called()
+
+        result = self.call(payload)["cleaning"]
+        self.assertEqual(self.values[P.SCHEDULE], before + ";25-0-21:30-0101100-1-7-1-2-0-extra")
+        copy = next(task for task in result["tasks"] if task["id"] == 25)
+        self.assertFalse(copy["enabled"])
+        self.assertTrue(copy["copyable"])
+        with self.assertRaisesRegex(Refused, "изменилось"):
+            self.call(payload)
+        self.protocol.set_property.assert_called_once()
+        self.protocol.action.assert_not_called()
+
+    def test_delete_accepts_delayed_readback_without_a_second_action(self):
+        normal_read = self.protocol.get_properties.side_effect
+        starting_value = self.values[P.SCHEDULE]
+
+        def delayed_read(query, **kwargs):
+            rows = normal_read(query, **kwargs)
+            if self.protocol.action.call_count and self.protocol.get_properties.call_count == 4:
+                rows[0]["value"] = starting_value
+            return rows
+
+        self.protocol.get_properties.side_effect = delayed_read
+        result = self.call(self.delete_task(23))["cleaning"]
+        self.assertEqual([task["id"] for task in result["tasks"]], [24])
+        self.assertEqual(self.protocol.get_properties.call_count, 5)
+        self.protocol.action.assert_called_once()
 
     def test_no_success_when_robot_acknowledges_but_list_differs(self):
         def unexpected_write(*_args, **_kwargs):
