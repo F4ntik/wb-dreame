@@ -1,6 +1,7 @@
 import { adjustUnderlay, cleaningCoverage, dragZone, jobRequest, mapInfo, mapOverlays, mapView, maxZones, pendingRequest, pointOnMap, preferenceInfo,
   preferenceRequest, rectanglePaths, requestIdentity, safeMapSvg, svgNS, underlayInfo, underlayUrl, zoneHitsNoGo, zoneInBounds,
   zoneListInBounds, zoneMeasures, zoneProblem } from './controls.js';
+import { scenarios } from './scenarios.js';
 import { initViews, resourceWidget } from './views.js';
 import { historyView } from './history.js';
 
@@ -93,6 +94,7 @@ const cleaningStates = new Set(['SWEEPING', 'MOPPING', 'SWEEPING_AND_MOPPING', '
 const cleanGeniusLabels = ['Выключен', 'Обычная уборка', 'Глубокая уборка'];
 
 let telemetry = {};
+let scenarioPanel;
 let pollTimer;
 let polling = false;
 let map = null;
@@ -357,6 +359,7 @@ function renderZoneFields(drawZone) {
 }
 
 function renderJob() {
+  scenarioPanel?.render();
   const drawZone = target === 'zone' && !(cleanGenius > 0);
   if (!drawZone) stopZoneDrag();
   mapHost.dataset.mode = target === 'zone' && !drawZone ? 'rooms' : target;
@@ -1166,8 +1169,8 @@ function newRequestId() {
     .replace(/^(\w{8})(\w{4})(\w{4})(\w{4})(\w{12})$/, '$1-$2-$3-$4-$5');
 }
 
-async function send(action) {
-  const job = prepared(action);
+async function send(action, scenario = null) {
+  const job = scenario?.job ?? prepared(action);
   const preview = action === 'start' && telemetry.allow_commands !== true;
   if (busy || preferenceBusy === 'cleangenius' || (action === 'start' && awaitingMode !== null) ||
       telemetry.online !== true || !job || (job.kind === 'zone' && drag) || (!preview && telemetry.allow_commands !== true)) return;
@@ -1184,7 +1187,7 @@ async function send(action) {
       const areas = job.zones || (job.zone ? [job.zone] : []);
       const areaText = areas.map(([x1, y1, x2, y2], index) => `Зона ${index + 1} · (${x1}, ${y1}) → (${x2}, ${y2})`);
       const confirmed = await confirmMessage('Подтвердите команду',
-        action === 'start' ? [`Начать уборку? ${targetText()}.${modeText}`, ...areaText].join('\n') : motionLabels[action]);
+        scenario?.confirmation ?? (action === 'start' ? [`Начать уборку? ${targetText()}.${modeText}`, ...areaText].join('\n') : motionLabels[action]));
       confirmingZone = false;
       if (!confirmed) return;
     }
@@ -1237,4 +1240,19 @@ motion.addEventListener('click', event => {
 });
 
 if (retry) notify('Исход предыдущей команды неизвестен. Повтор с теми же параметрами сохранит её номер.', true);
+scenarioPanel = scenarios({
+  map: () => map, online: () => telemetry.online === true, busy: () => busy || Boolean(drag) || Boolean(preferenceBusy) || modal.open,
+  zones: () => target === 'zone' ? jobZones() : null,
+  pick: saved => {
+    if (cleanGenius > 0) { notify('Для зон выключите CleanGenius в задании уборки.', false); return false; }
+    changeTarget('zone');
+    if (saved && !replaceZoneDraft(saved)) return false;
+    if (!saved) replaceZoneDraft([]);
+    byId('map').scrollIntoView({block: 'center'});
+    notify(saved ? 'Зоны входа выбраны. Проверьте их на карте и нажмите «Начать уборку».'
+      : 'Обведите участок у входа, затем нажмите «Сохранить выделение» в сценариях.', false);
+    return true;
+  },
+  confirm: confirmMessage, send: scene => send('start', scene),
+});
 void poll();

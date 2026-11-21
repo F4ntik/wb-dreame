@@ -3,6 +3,7 @@ import json
 from hashlib import sha256
 
 from config import Refused, atomic, integer, read
+from jobs import MAX_ZONES, check_zone_geometry
 
 
 def _fingerprint(value):
@@ -36,7 +37,6 @@ class Entrance:
         return result
 
     def save(self, device_id, plan, displayed, data):
-        from jobs import check_zone_geometry
         if not device_id or not plan or not displayed:
             raise Refused("Дождитесь связи с пылесосом и его карты.")
         if (set(data) != {"version", "map_id", "revision", "zones"}
@@ -46,7 +46,7 @@ class Entrance:
         if data["version"] != self.view(device_id, plan)["version"]:
             raise Refused("Сценарий уже изменили. Обновите панель.")
         zones = data["zones"]
-        if (not isinstance(zones, list) or not 1 <= len(zones) <= 10
+        if (not isinstance(zones, list) or not 1 <= len(zones) <= MAX_ZONES
                 or any(not isinstance(z, list) or len(z) != 4
                        or not all(integer(v, -999999, 999999) for v in z) for z in zones)):
             raise Refused("Нарисуйте от одной до десяти зон у входа.")

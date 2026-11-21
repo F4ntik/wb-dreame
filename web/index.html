@@ -123,6 +123,24 @@
           <button id="submit-job" type="submit" class="primary" disabled>Проверить задание</button>
           <p id="submit-hint" class="muted field-hint">Робот должен быть на связи.</p>
         </form>
+        <details id="scenario-panel" class="scenario-panel">
+          <summary>Сценарии уборки</summary>
+          <div class="scenario-content">
+            <section aria-labelledby="entrance-title">
+              <h3 id="entrance-title">Песок у входа</h3>
+              <p id="entrance-note" class="muted"></p>
+              <div class="scenario-buttons">
+                <button id="entrance-apply" type="button">Выбрать зону входа</button>
+                <button id="entrance-save" type="button" hidden>Сохранить выделение</button>
+              </div>
+            </section>
+            <section aria-labelledby="dreame-scenes-title">
+              <div class="section-heading"><h3 id="dreame-scenes-title">Из Dreamehome</h3><button type="button" id="scene-refresh">Обновить</button></div>
+              <div id="scene-items" class="scenario-buttons"></div>
+            </section>
+            <p id="scene-message" class="muted" role="status" hidden></p>
+          </div>
+        </details>
         <div id="motion-controls" class="motion-controls" hidden aria-label="Управление уборкой">
           <button type="button" data-action="pause">Пауза</button>
           <button type="button" data-action="resume">Продолжить</button>

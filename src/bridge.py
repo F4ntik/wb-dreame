@@ -10,7 +10,7 @@ from config import CONFIG, DATA, MODELS, STATE, Refused, read, validate
 from entrance import Entrance
 from history_map import history_position, render_history
 from history_media import obstacle_photo, obstacles
-from jobs import ACTIVE, Jobs
+from jobs import ACTIVE, Jobs, _normalize
 from mqtt_namespace import CHANNELS, OWNER_FILE, RetainedSession, encode, lock_namespace, read_owner
 from overlays import read_overlays
 from preferences import apply_preference
@@ -172,10 +172,12 @@ class Bridge:
         with self.io_lock:
             plan = self.latest.get("map") if self.latest["online"] else None
             device_id = self.room_names.device_id
-            if request is None:
-                return self.entrance.view(device_id, plan)
             displayed, _ = self.display_map(plan)
-            return self.entrance.save(device_id, plan, displayed, request)
+            result = (self.entrance.view(device_id, plan) if request is None
+                      else self.entrance.save(device_id, plan, displayed, request))
+            if result["status"] == "ready":
+                result.update(map_id=displayed["id"], revision=displayed["revision"])
+            return result
 
     def web_adjust(self, request):
         with self.io_lock:
@@ -207,7 +209,6 @@ class Bridge:
             if not self.cloud or not self.latest["online"] or self.halt.is_set():
                 raise WebConflict("Нет свежих данных робота")
             if request.get("kind") == "shortcut":
-                from jobs import _normalize
                 normalized = _normalize(request)
                 scene = read_shortcut(self.cloud, normalized["shortcut_id"])
             else:
