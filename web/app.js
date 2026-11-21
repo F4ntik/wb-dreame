@@ -26,8 +26,13 @@ const zoneCorners = [0, 1, 2, 3].map(corner => {
   handle.dataset.corner = corner;
   return handle;
 });
-const zoneMove = make('span', undefined, 'zone-handle');
-zoneHandles.append(...zoneCorners, zoneMove);
+const zoneSides = ['x1', 'y1', 'x2', 'y2'].map(side => {
+  const handle = make('span', undefined, 'zone-handle');
+  handle.dataset.side = side;
+  return handle;
+});
+const zoneMove = make('span', undefined, 'zone-handle zone-handle-move');
+zoneHandles.append(...zoneSides, ...zoneCorners, zoneMove);
 const orientation = byId('map-orientation');
 const selects = ['suction', 'water', 'repeats'];
 const submit = byId('submit-job');
@@ -205,7 +210,7 @@ function updateOverlay() {
 
 function positionZoneHandles([first, upper, right, last], host) {
   const offset = (dx, dy) => {
-    const scale = Math.max(.5, 19 / Math.hypot(dx, dy));
+    const scale = Math.max(.5, 28 / Math.hypot(dx, dy));
     return [dx * scale, dy * scale];
   };
   // Keep all handles reachable when either side is very short on screen.
@@ -228,6 +233,17 @@ function positionZoneHandles([first, upper, right, last], host) {
     const y = corner % 2 === 0 ? -1 : 1;
     place(handle, x * xx + y * yx, x * xy + y * yy);
   });
+  const [left, bottom, rightSide, top] = zoneSides;
+  place(left, -xx, -xy);
+  place(rightSide, xx, xy);
+  place(bottom, -yx, -yy);
+  place(top, yx, yy);
+  const xAngle = `${Math.atan2(xy, xx)}rad`;
+  const yAngle = `${Math.atan2(yy, yx)}rad`;
+  left.style.setProperty('--side-angle', yAngle);
+  rightSide.style.setProperty('--side-angle', yAngle);
+  bottom.style.setProperty('--side-angle', xAngle);
+  top.style.setProperty('--side-angle', xAngle);
   place(zoneMove, 0, 0);
 }
 
@@ -270,7 +286,7 @@ function renderJob() {
   label(byId('target-summary'), targetText());
   label(byId('map-hint'), !map ? 'Ожидаем актуальную сохранённую карту.' : drawZone
     ? (zoneInBounds(readZone(), map.bounds)
-      ? 'Тяните зону за середину, а для изменения размера — за угловой маркер. Новую зону можно нарисовать снаружи текущей.'
+      ? 'Перетаскивайте зону за середину. Размер меняйте за маркер на стороне или в углу. Начните снаружи, чтобы нарисовать новую зону.'
       : 'Проведите от одного угла зоны до другого или укажите координаты.') : 'Выберите комнаты на карте или в списке.');
   const order = new Map(target === 'rooms' ? [...rooms].map((id, index) => [id, index + 1]) : []);
   for (const element of [mapHost, roomList].flatMap(host => [...host.querySelectorAll('[data-room]')])) {
@@ -709,7 +725,7 @@ function updateZoneDrag(event) {
   const point = pointerPoint(event);
   if (!point) return;
   if (drag.zone) {
-    drag.preview = dragZone(drag.zone, drag.corner, point.map((value, index) => Math.round(value - drag.start[index])), map.bounds);
+    drag.preview = dragZone(drag.zone, drag.handle, point.map((value, index) => Math.round(value - drag.start[index])), map.bounds);
   } else {
     const end = pointOnMap(point[0], -point[1], map.bounds, true);
     drag.preview = zoneInBounds([...drag.start, ...end], map.bounds);
@@ -727,14 +743,15 @@ mapHost.addEventListener('pointerdown', event => {
   if (mapHost.dataset.mode !== 'zone' || event.button !== 0 || !event.isPrimary || drag) return;
   const point = pointerPoint(event);
   if (!point) return;
-  const corner = event.target.dataset.corner;
-  const editing = corner !== undefined || event.target === overlay || event.target === zoneMove;
+  const { corner, side } = event.target.dataset;
+  const handle = side ?? (corner === undefined ? null : Number(corner));
+  const editing = handle !== null || event.target === overlay || event.target === zoneMove;
   const zone = editing ? zoneInBounds(readZone(), map.bounds) : null;
   const start = zone ? point : pointOnMap(point[0], -point[1], map.bounds);
   if (!start) return;
   event.preventDefault();
   mapHost.setPointerCapture(event.pointerId);
-  drag = { id: event.pointerId, start, zone, corner: corner === undefined ? null : Number(corner), preview: zone };
+  drag = { id: event.pointerId, start, zone, handle, preview: zone };
   renderJob();
 });
 mapHost.addEventListener('pointermove', event => {

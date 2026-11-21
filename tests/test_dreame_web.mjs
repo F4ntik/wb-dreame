@@ -41,6 +41,18 @@ test('dragging clamps the rectangle and each corner, keeping the opposite sides 
   assert.deepEqual(dragZone(zone, 3, [-1000, -1000], map.bounds), [-230, -10, -229, -9]);
 });
 
+test('each side follows only its map axis and stops at the bounds and its opposite side', () => {
+  const zone = [-230, -10, 200, 480];
+  assert.deepEqual(dragZone(zone, 'x1', [-1000, 1000], map.bounds), [-300, -10, 200, 480]);
+  assert.deepEqual(dragZone(zone, 'y1', [1000, -1000], map.bounds), [-230, -100, 200, 480]);
+  assert.deepEqual(dragZone(zone, 'x2', [1000, -1000], map.bounds), [-230, -10, 500, 480]);
+  assert.deepEqual(dragZone(zone, 'y2', [-1000, 1000], map.bounds), [-230, -10, 200, 650]);
+  assert.deepEqual(dragZone(zone, 'x1', [1000, -1000], map.bounds), [199, -10, 200, 480]);
+  assert.deepEqual(dragZone(zone, 'y1', [-1000, 1000], map.bounds), [-230, 479, 200, 480]);
+  assert.deepEqual(dragZone(zone, 'x2', [-1000, 1000], map.bounds), [-230, -10, -229, 480]);
+  assert.deepEqual(dragZone(zone, 'y2', [1000, -1000], map.bounds), [-230, -10, 200, -9]);
+});
+
 test('selection only sends applicable options, including zero suction', () => {
   assert.deepEqual(jobRequest('start', map, { kind: 'all' }, { suction: '0', water: '3', repeats: '3' }),
     { action: 'start', map_id: 7, revision: 'r2', kind: 'all' });
