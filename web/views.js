@@ -52,6 +52,38 @@ export function confirmMessage(title, message, accept = 'Подтвердить'
   });
 }
 
+export function panelNavigation(shell) {
+  const tablist = shell.querySelector('[role=tablist]');
+  const embedded = window.self !== window.top;
+  const fitsRail = matchMedia('(min-width: 1000px)');
+  const wide = matchMedia('(min-width: 1160px)');
+  let preference = 'auto';
+  const apply = () => {
+    const left = preference === 'left' ? fitsRail.matches : preference === 'auto' && !embedded && wide.matches;
+    shell.dataset.navigation = left ? 'left' : 'top';
+    tablist.setAttribute('aria-orientation', left ? 'vertical' : 'horizontal');
+  };
+  fitsRail.addEventListener('change', apply);
+  wide.addEventListener('change', apply);
+  apply();
+  return value => {
+    if (value === undefined) return;
+    const next = value === 'left' || value === 'top' ? value : 'auto';
+    if (preference !== next) { preference = next; apply(); }
+  };
+}
+
+export function nextTab(key, index, count, vertical, columns) {
+  if (key === 'Home') return 0;
+  if (key === 'End') return count - 1;
+  if (key === (vertical ? 'ArrowDown' : 'ArrowRight')) return (index + 1) % count;
+  if (key === (vertical ? 'ArrowUp' : 'ArrowLeft')) return (index + count - 1) % count;
+  if (!vertical && columns > 0) {
+    if (key === 'ArrowDown' && index + columns < count) return index + columns;
+    if (key === 'ArrowUp' && index >= columns) return index - columns;
+  }
+}
+
 export function initViews() {
   for (const node of document.querySelectorAll('[data-icon]')) node.append(glyph(node.dataset.icon));
   const tabs = [...document.querySelectorAll('.view-tabs [role=tab]')];
@@ -71,19 +103,16 @@ export function initViews() {
     tab.prepend(glyph(tab.dataset.glyph));
     tab.addEventListener('click', () => select(tab));
     tab.addEventListener('keydown', event => {
-      const next = { ArrowRight: (index + 1) % tabs.length, ArrowDown: (index + 1) % tabs.length,
-        ArrowLeft: (index + tabs.length - 1) % tabs.length, ArrowUp: (index + tabs.length - 1) % tabs.length,
-        Home: 0, End: tabs.length - 1 }[event.key];
+      const vertical = tab.parentElement.getAttribute('aria-orientation') === 'vertical';
+      const checkRows = !vertical && (event.key === 'ArrowUp' || event.key === 'ArrowDown');
+      const columns = checkRows ? tabs.findIndex(item => item.offsetTop > tabs[0].offsetTop) : 0;
+      const next = nextTab(event.key, index, tabs.length, vertical, columns);
       if (next === undefined) return;
       event.preventDefault();
       select(tabs[next]);
       tabs[next].focus();
     });
   });
-  const rail = matchMedia('(min-width: 1160px)');
-  const setOrientation = () => tabs[0].parentElement.setAttribute('aria-orientation', rail.matches ? 'vertical' : 'horizontal');
-  rail.addEventListener('change', setOrientation);
-  setOrientation();
   window.addEventListener('hashchange', fromHash);
   fromHash();
 }

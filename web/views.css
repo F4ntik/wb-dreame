@@ -120,21 +120,27 @@
 .settings-card .preference-row:first-child { border-top: 0; }
 .settings-card .records { padding-bottom: .1rem; }
 .detail-card > summary { min-height: 48px; padding: .85rem 1.05rem; }
-@media (min-width: 1160px) {
-  .shell { display: grid; grid-template-columns: clamp(195px,18vw,240px) minmax(0,1fr); }
-  .sidebar { position: sticky; top: 0; height: 100dvh; display: flex; flex-direction: column; align-self: start; padding: 2.1rem 1rem 1.25rem; border-right: 1px solid var(--border); }
-  .device-heading { margin-inline: .32rem; }
-  .connection { margin: .85rem .65rem 1.75rem; }
-  .back { margin: auto .8rem 0; }
-  .workspace { padding-top: 2.05rem; }
+.sidebar { display: grid; grid-template-columns: minmax(0,1fr) auto auto; grid-template-areas: "device connection back" "tabs tabs tabs"; align-items: center; gap: .65rem .8rem; padding: .8rem clamp(.8rem,2.2vw,2rem) .65rem; border-bottom: 1px solid var(--border); }
+.device-heading { grid-area: device; }
+.connection { grid-area: connection; justify-self: end; }
+.back { grid-area: back; }
+.view-tabs { grid-area: tabs; display: flex; gap: .18rem; }
+.view-tabs button { justify-content: center; padding: .5rem .58rem; }
+@media (min-width: 1000px) {
+  .sidebar:has(.back[hidden]) { grid-template-columns: auto minmax(0,1fr) auto; grid-template-areas: "device tabs connection"; }
 }
-@media (max-width: 1159px) {
-  .sidebar { display: grid; grid-template-columns: minmax(0,1fr) auto auto; gap: .75rem 1rem; align-items: center; padding: .85rem clamp(.8rem,3vw,2rem) .7rem; border-bottom: 1px solid var(--border); }
-  .connection { justify-self: end; }
-  .back { grid-row: 1; grid-column: 3; }
-  .view-tabs { grid-column: 1 / -1; display: flex; gap: .18rem; }
-  .view-tabs button { justify-content: center; padding: .5rem .65rem; }
+@media (min-width: 1200px) {
+  .sidebar:has(.back:not([hidden])) { grid-template-columns: auto minmax(0,1fr) auto auto; grid-template-areas: "device tabs connection back"; }
 }
+.shell[data-navigation="left"] { display: grid; grid-template-columns: clamp(164px,calc(24vw - 74px),240px) minmax(0,1fr); }
+.shell[data-navigation="left"] .sidebar { position: sticky; top: 0; height: 100dvh; overflow-y: auto; display: flex; flex-direction: column; align-items: stretch; align-self: start; gap: 0; padding: 2.1rem clamp(.55rem,1.1vw,1rem) 1.25rem; border: 0; border-right: 1px solid var(--border); }
+.shell[data-navigation="left"] .device-heading { gap: .5rem; margin-inline: .18rem; }
+.shell[data-navigation="left"] .device-mark { width: clamp(34px,3.4vw,44px); height: clamp(34px,3.4vw,44px); }
+.shell[data-navigation="left"] .connection { margin: .8rem .55rem 1.6rem; }
+.shell[data-navigation="left"] .back { margin: auto .55rem 0; }
+.shell[data-navigation="left"] .view-tabs { display: grid; gap: .22rem; }
+.shell[data-navigation="left"] .view-tabs button { justify-content: flex-start; padding: .59rem .62rem; }
+.shell[data-navigation="left"] .workspace { padding-top: 2.05rem; }
 @media (min-width: 781px) {
   #to-job { display: none; }
   .map-footer:not(:has(#latest-cleaning-map:not([hidden]))) { display: none; }
@@ -145,14 +151,15 @@
   .scenario-layout, .settings-grid { grid-template-columns: minmax(0,1fr); }
 }
 @media (max-width: 650px) {
-  .sidebar { gap: .55rem .5rem; padding: .62rem .78rem .55rem; grid-template-columns: minmax(0,1fr) auto; }
+  .sidebar { gap: .55rem .5rem; padding: .62rem .78rem .55rem; grid-template-columns: minmax(0,1fr) auto; grid-template-areas: "back back" "device connection" "tabs tabs"; }
+  .sidebar:has(.back[hidden]) { grid-template-areas: "device connection" "tabs tabs"; }
   .device-heading { gap: .55rem; }
   .device-mark { width: 37px; height: 37px; border-radius: 11px; }
   .device-mark .ui-glyph { width: 25px; height: 25px; }
   h1 { font-size: 1.12rem; }
   #model { font-size: .74rem; }
   .connection { font-size: .74rem; }
-  .back { grid-area: auto; grid-column: 1/-1; order: -1; min-height: 28px; font-size: .74rem; }
+  .back { min-height: 28px; font-size: .74rem; }
   .view-tabs { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 2px; }
   .view-tabs button { padding: .35rem .1rem; font-size: .8rem; line-height: 1.2; min-height: 44px; gap: .38rem; }
   .view-tabs .ui-glyph { width: 16px; height: 16px; }

@@ -2,7 +2,7 @@ import { adjustUnderlay, cleaningCoverage, dragZone, jobBlock, jobRequest, mapIn
   preferenceRequest, rectanglePaths, requestIdentity, roomStatusLabels, safeMapSvg, svgNS, underlayInfo, underlayUrl, zoneHitsNoGo, zoneInBounds,
   zoneListInBounds, zoneMeasures, zoneProblem } from './controls.js';
 import { scenarios } from './scenarios.js';
-import { confirmMessage, initViews } from './views.js';
+import { confirmMessage, initViews, panelNavigation } from './views.js';
 import { resourceWidget } from './resources.js';
 import { historyRows, historyView } from './history.js';
 
@@ -85,6 +85,7 @@ for (const input of coverageSwitches) {
 }
 const renderHistory = historyView(coverageSwitches);
 const renderResources = resourceWidget(byId('metrics'));
+const setNavigation = panelNavigation(document.querySelector('.shell'));
 window.addEventListener('DOMContentLoaded', initViews, { once: true });
 const numbers = new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 1 });
 const measures = new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 2 });
@@ -1257,6 +1258,7 @@ function renderCamera(camera) {
 
 function render(data, keepAlignment = false, controllerReached = true) {
   telemetry = data;
+  setNavigation(data.panel_navigation);
   const online = data.online === true;
   const connection = byId('connection'), writable = data.allow_commands === true;
   const changed = connection.dataset.online !== String(online) || connection.dataset.writable !== String(writable);
