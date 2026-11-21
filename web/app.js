@@ -3,7 +3,7 @@ import { adjustUnderlay, cleaningCoverage, dragZone, jobRequest, mapInfo, mapOve
   zoneListInBounds, zoneMeasures, zoneProblem } from './controls.js';
 import { scenarios } from './scenarios.js';
 import { initViews, resourceWidget } from './views.js';
-import { historyView } from './history.js';
+import { historyRows, historyView } from './history.js';
 
 const byId = id => document.getElementById(id);
 const mapHost = byId('map');
@@ -41,6 +41,8 @@ zoneHandles.append(...zoneSides, ...zoneCorners, zoneMove);
 const orientation = byId('map-orientation');
 const selects = ['suction', 'water', 'repeats'];
 const submit = byId('submit-job');
+const reclean = byId('reclean');
+const recleanResult = byId('reclean-result');
 const notice = byId('job-result');
 const modal = byId('confirmation');
 const motion = byId('motion-controls');
@@ -77,6 +79,7 @@ window.addEventListener('DOMContentLoaded', initViews, { once: true });
 const numbers = new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 1 });
 const measures = new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 2 });
 const frameTime = new Intl.DateTimeFormat('ru-RU', { timeStyle: 'medium' });
+const reportTime = new Intl.DateTimeFormat('ru-RU', { dateStyle: 'short', timeStyle: 'short' });
 
 const states = {
   CHARGING_COMPLETED: 'Зарядка завершена', CHARGING: 'Зарядка', IDLE: 'Ожидание',
@@ -398,6 +401,7 @@ function renderJob() {
   for (const button of motion.querySelectorAll('button')) button.disabled = busy || preferenceBusy === 'cleangenius' || telemetry.online !== true;
   forgetRequest.hidden = !retry;
   forgetRequest.disabled = busy || preferenceBusy === 'cleangenius';
+  renderReclean();
 }
 
 function changeTarget(kind) {
@@ -1192,6 +1196,77 @@ function newRequestId() {
   return [...bytes].map(value => value.toString(16).padStart(2, '0')).join('')
     .replace(/^(\w{8})(\w{4})(\w{4})(\w{4})(\w{12})$/, '$1-$2-$3-$4-$5');
 }
+
+function latestReport() {
+  return historyRows(telemetry.details?.history)[0];
+}
+
+function renderReclean() {
+  const report = latestReport();
+  let reason = '';
+  if (telemetry.online !== true) reason = 'Доуборка станет доступна после восстановления связи.';
+  else if (!map) reason = 'Для доуборки нужна текущая сохранённая карта.';
+  else if (telemetry.reclean_attempt) reason = 'По последнему отчёту доуборку уже запросили. Проверьте состояние робота.';
+  else if (!report) reason = 'Ждём последнего отчёта Dreamehome.';
+  else if (!report.mapAvailable) reason = 'У последнего отчёта нет архивной карты.';
+  reclean.disabled = Boolean(reason) || busy || preferenceBusy === 'cleangenius';
+  label(byId('reclean-hint'), reason || `Проверить пропуски по отчёту от ${reportTime.format(report.timestamp * 1000)}.`);
+}
+
+function showRecleanResult(message, error = false) {
+  recleanResult.hidden = false;
+  recleanResult.dataset.error = String(error);
+  label(recleanResult, message);
+}
+
+async function postReclean(endpoint, request) {
+  const response = await fetch(endpoint, { method: 'POST', headers: requestHeaders,
+    body: JSON.stringify(request), signal: AbortSignal.timeout(20000) });
+  const result = await response.json();
+  return { ...result, ok: response.ok };
+}
+
+reclean.addEventListener('click', async () => {
+  if (reclean.disabled) return;
+  const report = latestReport();
+  const request = { request_id: newRequestId(), action: 'reclean', timestamp: report.timestamp,
+    map_id: map.id, revision: map.revision };
+  let sending = false;
+  busy = true;
+  renderJob();
+  showRecleanResult('Проверяем последний отчёт Dreamehome…');
+  try {
+    const preview = await postReclean('./api/preview', request);
+    if (!preview.ok || preview.status !== 'preview') {
+      showRecleanResult(preview.message || 'Доуборка по этому отчёту недоступна.', true);
+      return;
+    }
+    const names = (preview.targets?.rooms || []).map(id => map?.rooms[id] || `Комната ${id}`);
+    const targets = [names.length && `Пропущенные комнаты — ${names.join(', ')}`,
+      preview.targets?.dirty_areas === true && 'Загрязнённые участки на карте Dreamehome'].filter(Boolean);
+    if (!targets.length) throw new Error('reclean targets');
+    const description = targets.join('. ') + '.';
+    const enabled = telemetry.allow_commands === true;
+    showRecleanResult(enabled ? description : `${description} Запуск выключен в настройках драйвера.`);
+    if (!enabled || !(await confirmMessage('Доубрать по последнему отчёту?',
+      `${reportTime.format(report.timestamp * 1000)}. ${description}`, 'Доубрать'))) return;
+    if (telemetry.online !== true || telemetry.allow_commands !== true || latestReport()?.timestamp !== request.timestamp ||
+        map?.id !== request.map_id || map.revision !== request.revision) {
+      showRecleanResult('Отчёт, карта или доступ к управлению изменились. Проверьте задание заново.', true);
+      return;
+    }
+    sending = true;
+    const result = await postReclean('./api/job', request);
+    showRecleanResult(result.message || 'Ответ на команду не подтверждён.', !result.ok || result.status !== 'acknowledged');
+  } catch {
+    showRecleanResult(sending ? 'Ответ на команду не получен. Проверьте состояние пылесоса.' :
+      'Не удалось проверить последний отчёт. Попробуйте ещё раз.', true);
+  } finally {
+    busy = false;
+    renderJob();
+    if (sending) void poll();
+  }
+});
 
 async function send(action, scenario = null) {
   const job = scenario?.job ?? prepared(action);

@@ -12,6 +12,7 @@ from overlays import read_overlays
 from jobs import CLEANING, blocking_error, check_observation_age, job_zones
 from panel import map_snapshot
 from preferences import cleangenius_value, offered, property_write_permitted
+from reclean import report_request
 from schedules import delete_write_permitted
 from shortcuts import permitted as shortcut_permitted, start_shortcut
 from vendor.device import DreameVacuumDevice
@@ -21,6 +22,7 @@ from vendor.types import DreameVacuumChargingStatus as Charging, DreameVacuumSel
 from vendor.types import DreameVacuumProperty as P, DreameVacuumState as S, DreameVacuumTaskStatus as T
 
 ALLOWED_ACTION = ContextVar("allowed_action", default=())
+RECLEAN_ACTION = ContextVar("reclean_action", default=None)
 WRITE_AUTHORIZATION = ContextVar("write_authorization", default=None)
 READ_ACTIONS = {(6, 1), (6, 4), (14, 1)}  # Map data, Wi-Fi map, map-file key exchange.
 JOB_MODELS = COMMAND_MODELS | {"dreame.vacuum.r9419a"}
@@ -45,12 +47,16 @@ def dock_position(state, charging):
 def guard(method, parameters):
     if method == "get_properties" or shortcut_permitted(method, parameters, write=False):
         return
-    authorized_write = property_write_permitted(method, parameters)
-    if method == "action" and isinstance(parameters, dict):
+    reclean = RECLEAN_ACTION.get()
+    if reclean is not None:
+        authorized_write = method == "action" and parameters == reclean
+    elif method == "action" and isinstance(parameters, dict):
         pair = (parameters.get("siid"), parameters.get("aiid"))
         if pair in READ_ACTIONS:
             return
         authorized_write = pair in ALLOWED_ACTION.get() or delete_write_permitted(method, parameters) or shortcut_permitted(method, parameters, write=True)
+    else:
+        authorized_write = property_write_permitted(method, parameters)
     if authorized_write:
         verify = WRITE_AUTHORIZATION.get()
         if verify is not None and not verify():
@@ -168,6 +174,37 @@ class Robot:
                 del self._archives[next(iter(self._archives))]
             self._archives[cache_key] = archive
         return self._archives[cache_key]
+
+    def reclean_report(self, timestamp):
+        """Read the latest report and its original map, bypassing the archive display cache."""
+        self.identity()
+        device = self.device
+        if self.account["model"] not in JOB_MODELS or not device.capability.auto_recleaning:
+            raise Refused("Робот не подтвердил поддержку доуборки из отчёта")
+        if not device.refresh_cleaning_records(force=True, strict=True):
+            raise Refused("Не удалось обновить последний отчёт Dreamehome. Повторите проверку")
+        records = tuple(device.status._cleaning_history or ())
+        if not records:
+            raise Refused("В Dreamehome пока нет отчётов об уборке")
+        latest = records[0]
+        if int(latest.date.timestamp()) != timestamp:
+            raise Refused("В Dreamehome появился другой последний отчёт. Обновите панель")
+        row = history_records(records).get(timestamp)
+        if row is None or row[1] is None or sum(int(record.date.timestamp()) == timestamp for record in records) != 1:
+            raise Refused("У последнего отчёта нет однозначно привязанной карты")
+        manager = device._map_manager
+        archive = manager.get_history_map(*row[1]) if manager else None
+        if archive is None or archive.history_map is not True or archive.empty_map:
+            raise Refused("Архивная карта последней уборки недоступна. Повторите позже")
+        return latest, row[1], archive
+
+    def prepare_reclean(self, report, observation, map_info):
+        current = self.device.status.current_map
+        if (current is None or self.device.status.has_temporary_map or
+                current.saved_map_id != observation["map_id"]):
+            raise Refused("Робот не подтвердил сохранённую карту для доуборки")
+        return report_request(*report, current, observation, map_info["rooms"], self.device.capability,
+                              (self.account["model"], self.account["did"]))
 
     def note_live_map_demand(self) -> None:
         """Signal demand from a panel with confirmed active cleaning."""
@@ -311,7 +348,7 @@ class Robot:
             raise Refused("Для этой модели доступно только чтение")
         self.identity()
         check_observation_age(snap)
-        if request["action"] == "start":
+        if request["action"] in ("start", "reclean"):
             key = self._command_map_key(self.saved_map(), snap.get("command_map_list"))
             if key is None or key != snap.get("command_map_key"):
                 raise Refused("Карта изменилась перед отправкой. Обновите панель")
@@ -323,6 +360,18 @@ class Robot:
         d = self.device
         if request.get("kind") == "shortcut":
             return start_shortcut(self, request["shortcut_id"])
+        if request["action"] == "reclean":
+            status, payload, _, _ = snap["reclean"]
+            params = [{"piid": d.property_mapping[P.STATUS]["piid"], "value": status.value},
+                      {"piid": d.property_mapping[P.CLEANING_PROPERTIES]["piid"], "value": payload}]
+            mapping = d.action_mapping[A.START_CUSTOM]
+            did = str(d._protocol.cloud.device_id)
+            context = RECLEAN_ACTION.set({"did": did, **mapping, "in": params})
+            try:
+                result = d._protocol.action(mapping["siid"], mapping["aiid"], params, retry_count=0)
+            finally:
+                RECLEAN_ACTION.reset(context)
+            return result[0] if isinstance(result, list) and len(result) == 1 else result
         action = JOB_ACTIONS[request["action"]]
         params = None
         kind = request.get("kind")

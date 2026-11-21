@@ -1888,7 +1888,7 @@ class DreameVacuumDevice:
         ):
             self._map_manager.editor.refresh_map()
 
-    def refresh_cleaning_records(self, *, force=False) -> bool:
+    def refresh_cleaning_records(self, *, force=False, strict=False) -> bool:
         """Reconcile the last 30 cloud events even if the task-end notification was missed."""
         if not self._history_refresh_lock.acquire(blocking=False):
             return False
@@ -1905,8 +1905,12 @@ class DreameVacuumDevice:
                 try:
                     history = CleaningHistory(json.loads(event["history"] if "history" in event else event["value"]), self.property_mapping)
                 except (KeyError, TypeError, ValueError, IndexError, OverflowError, OSError):
+                    if strict:
+                        return False
                     continue
                 if history.date is None:
+                    if strict:
+                        return False
                     continue
                 if history.cleanup_method == CleanupMethod.CUSTOMIZED_CLEANING and self.capability.cleangenius:
                     history.cleanup_method = CleanupMethod.DEFAULT_MODE

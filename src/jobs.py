@@ -15,6 +15,7 @@ ACTION_FIELDS = {"request_id", "action"}
 START_FIELDS = ACTION_FIELDS | {"map_id", "revision", "kind"}
 # Same panel limit as the upstream Dreame Vacuum map card.
 MAX_ZONES = 10
+RECLEAN_FIELDS = (START_FIELDS - {"kind"}) | {"timestamp"}
 ACTIVE = {"AUTO_CLEANING", "SEGMENT_CLEANING", "ZONE_CLEANING", "SPOT_CLEANING"}
 PAUSED = {task + "_PAUSED" for task in ACTIVE} | {
     "MOPPING_PAUSED", "AUTO_MOPPING_PAUSED", "SEGMENT_MOPPING_PAUSED", "ZONE_MOPPING_PAUSED",
@@ -80,6 +81,12 @@ def _normalize(request):
     if not isinstance(request_id, str) or not REQUEST_ID.fullmatch(request_id):
         raise Refused("Некорректный идентификатор запроса")
     if action in ("pause", "resume", "stop", "dock") and request.keys() == ACTION_FIELDS:
+        return request.copy()
+    if action == "reclean":
+        if (request.keys() != RECLEAN_FIELDS or not integer(request["timestamp"], 1, 99_999_999_999)
+                or not integer(request["map_id"], 1, 2**31 - 1) or not isinstance(request["revision"], str)
+                or not REVISION.fullmatch(request["revision"])):
+            raise Refused("Укажите время отчёта и текущую карту")
         return request.copy()
     if action != "start" or not START_FIELDS <= request.keys():
         raise Refused("Проверьте действие и его параметры")
@@ -164,6 +171,8 @@ def _check_start(request, snap, map_info):
         raise Refused("Робот не подтвердил режим уборки")
     if not integer(snap.get("battery"), min_charge + 1, 100):
         raise Refused("Заряд слишком низкий или не подтверждён")
+    if request["action"] == "reclean":
+        return
     kind = request["kind"]
     if kind == "shortcut":
         scene = snap.get("command_shortcut") or {}
@@ -218,17 +227,28 @@ class Jobs:
 
     def __init__(self, state_dir):
         self._path = Path(state_dir) / "jobs.sqlite3"
+        self._reclean_preview = None
         with closing(sqlite3.connect(self._path)) as db, db:
             db.execute("""CREATE TABLE IF NOT EXISTS requests (
                 id TEXT PRIMARY KEY, body TEXT NOT NULL, status TEXT NOT NULL, at TEXT NOT NULL
             )""")
+            db.execute("""CREATE UNIQUE INDEX IF NOT EXISTS reclean_source ON requests(json_extract(body, '$.timestamp'))
+                          WHERE json_extract(body, '$.action') = 'reclean'""")
             db.execute("UPDATE requests SET status = 'unknown' WHERE status = 'sending'")
 
     def preview(self, request, fresh_observation, map_info):
         request = _normalize(request)
-        _check_state(request["action"], fresh_observation)
-        if request["action"] == "start":
+        action = request["action"]
+        _check_state("start" if action == "reclean" else action, fresh_observation)
+        if action in ("start", "reclean"):
             _check_start(request, fresh_observation, map_info)
+        if action == "reclean":
+            if "reclean" not in fresh_observation:
+                raise Refused("Сначала проверьте последний отчёт для доуборки")
+            body, proof = self._body(request), fresh_observation["reclean"][2]
+            self.check_reclean_source(request)
+            self._reclean_preview = (body, proof, monotonic() + 60)
+            return {"request": request, "targets": fresh_observation["reclean"][3]}
         return {"request": request}
 
     def submit(self, request, robot, fresh_observation, map_info, allow_commands=False):
@@ -241,7 +261,17 @@ class Jobs:
                 return prior
             if allow_commands is not True:
                 raise Refused("Управление отключено в настройках драйвера")
-            self.preview(request, fresh_observation, map_info)
+            if request["action"] == "reclean":
+                _check_state("start", fresh_observation)
+                _check_start(request, fresh_observation, map_info)
+                self.check_reclean_source(request)
+                proof = fresh_observation.get("reclean")
+                pending = self._reclean_preview
+                if not (proof and pending and pending[:2] == (body, proof[2]) and monotonic() <= pending[2]):
+                    raise Refused("Отчёт или условия доуборки изменились. Проверьте задание заново")
+                self._reclean_preview = None
+            else:
+                self.preview(request, fresh_observation, map_info)
             robot.validate_job(request, fresh_observation)
             at = datetime.now(timezone.utc).isoformat()
             with db:
@@ -258,6 +288,18 @@ class Jobs:
             with db:
                 db.execute("UPDATE requests SET status = ? WHERE id = ?", (status, request_id))
         return self._record((body, status, at))
+
+    def reclean_attempt(self, timestamp):
+        with closing(sqlite3.connect(self._path)) as db:
+            row = db.execute("""SELECT body, status, at FROM requests
+                                WHERE json_extract(body, '$.action') = 'reclean'
+                                  AND json_extract(body, '$.timestamp') = ?""", (timestamp,)).fetchone()
+        return self._record(row) if row else None
+
+    def check_reclean_source(self, request):
+        request = _normalize(request)
+        if self.reclean_attempt(request["timestamp"]):
+            raise Refused("Доуборка по этому отчёту уже запрашивалась. Проверьте состояние робота")
 
     def lookup(self, request):
         request = _normalize(request)

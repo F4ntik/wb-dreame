@@ -145,12 +145,15 @@ class Bridge:
             message = "Команда принята роботом" if last["status"] == "acknowledged" else "Результат команды не подтверждён"
             last = {**last, "message": message}
         names = self.room_names.for_map(plan)
+        report = next(iter(latest.get("details", {}).get("history", [])), None)
+        reclean_attempt = self.jobs.reclean_attempt(report["timestamp"]) if self.jobs and report else None
         if plan:
             plan = {key: value for key, value in plan.items() if key not in ("_room_keys", "_footprint_bits")}
         return {**latest, "model": self.title, "allow_commands": self.commands_enabled(),
                 "map": plan, "overlays": overlays, "live_frame_at_ms": frame_time, "live_room_id": room_id,
                 "live_room_status": room_status,
-                "last_job": last, "underlay": drawing, "room_names": names}
+                "last_job": last, "underlay": drawing, "room_names": names,
+                "reclean_attempt": reclean_attempt["status"] if reclean_attempt else None}
 
     def web_history(self, timestamp, obstacle_id=None):
         if not self.io_lock.acquire(timeout=1.5):
@@ -229,11 +232,21 @@ class Bridge:
                 scene = read_shortcut(self.cloud, normalized["shortcut_id"])
             else:
                 scene = None
+            if request.get("action") == "reclean":
+                self.jobs.check_reclean_source(request)
+                try:
+                    report = self.cloud.reclean_report(request["timestamp"])
+                finally:
+                    self.refresh.set()
             observation = self.cloud.observe(for_command=True)
             if scene is not None:
                 observation["command_shortcut"] = scene
             current = interactive_map(observation.get("saved_map"), self.latest["map"])
             current, _ = self.display_map(current)
+            if request.get("action") == "reclean":
+                if not current:
+                    raise Refused("Робот не подтвердил текущую карту для доуборки")
+                observation["reclean"] = self.cloud.prepare_reclean(report, observation, current)
             if preview:
                 result = self.jobs.preview(request, observation, current)
                 return {**result, "request_id": request.get("request_id"), "status": "preview",
