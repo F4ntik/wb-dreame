@@ -13,6 +13,13 @@ def valid_matrix(value):
             and abs(value[0]*value[3] - value[1]*value[2]) > 1e-8)
 
 
+def close_footprints(original, current):
+    if not original or len(original) != len(current):
+        return False
+    a, b = int.from_bytes(original, "big"), int.from_bytes(current, "big")
+    return bool(a | b) and (a ^ b).bit_count() * 100 <= (a | b).bit_count()
+
+
 class Underlay:
     def __init__(self, directory):
         self.meta = directory / "underlay.json"
@@ -50,11 +57,8 @@ class Underlay:
                 except OSError:
                     pass  # The exact calibrated outline is usable even with read-only storage.
             return True
-        if key != reference_key or len(bits) != len(reference_bits):
-            return False
         # Compare with the calibrated outline, never with the previous refresh.
-        a, b = int.from_bytes(bits, "big"), int.from_bytes(reference_bits, "big")
-        return (a ^ b).bit_count() * 100 <= (a | b).bit_count()
+        return key == reference_key and close_footprints(reference_bits, bits)
 
     def for_map(self, plan):
         if not plan:

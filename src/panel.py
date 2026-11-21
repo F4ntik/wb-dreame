@@ -106,6 +106,23 @@ def _map_svg(parts):
     return "".join(svg), legend
 
 
+def _coordinate_frame(saved, bounds):
+    dim, station = saved.dimensions, saved.charger_position
+    pose = None
+    if station and (bounds[0] <= station.x < bounds[2] and bounds[1] <= station.y < bounds[3]):
+        pose = [station.x, station.y, station.a]
+    try:
+        restrictions = [[(shape.as_list(), getattr(shape, "angle", None), getattr(shape, "hidden", False))
+                         for shape in shapes or ()]
+                        for shapes in (saved.no_go_areas, saved.no_mopping_areas, saved.virtual_walls)]
+        frame = json.dumps([saved.map_id, bounds, dim.grid_size, dim.original_left, dim.original_top,
+                            saved.rotation, saved.version, pose, restrictions], separators=(",", ":"), allow_nan=False)
+    except (AttributeError, TypeError, ValueError):
+        return None, None
+    confirmed = pose is not None and not (saved.dirty or saved.restored_map or saved.temporary_map or saved.new_map)
+    return frame, sha256(frame.encode()).hexdigest() if confirmed else None
+
+
 def interactive_map(saved, previous=None):
     snapshot = map_snapshot(saved)
     if snapshot is None:
@@ -119,8 +136,10 @@ def interactive_map(saved, previous=None):
     pixels = saved.pixel_type.T[::-1, :].copy()
     digest = sha256(pixels.tobytes())
     exclusions = read_overlays(saved, None)
+    station = saved.charger_position
+    frame, geometry_key = _coordinate_frame(saved, bounds)
     digest.update(json.dumps([saved.map_id, bounds, step, pixels.shape, rooms, list(identities.items()), saved.rotation,
-                              snapshot[2], exclusions], sort_keys=True).encode())
+                              snapshot[2], exclusions, frame, geometry_key], sort_keys=True).encode())
     revision = digest.hexdigest()
     if previous and previous["revision"] == revision:
         return previous
@@ -134,7 +153,6 @@ def interactive_map(saved, previous=None):
         room = f' data-room="{kind}"' if str(kind) in rooms else ""
         svg.append(f'<path fill="{colors[kind]}"{room} d="{"".join(parts)}"/>')
     svg.append('</g>')
-    station = saved.charger_position
     if station and left <= station.x <= right and bottom <= station.y <= top:
         svg.append(f'<circle cx="{station.x}" cy="{-station.y}" r="{step*2}" fill="#164B50"/>')
     svg.append('</svg>')
@@ -176,7 +194,8 @@ def interactive_map(saved, previous=None):
                     for start, end in zip(changes[::2], changes[1::2]))
     room_area = {key: round(np.count_nonzero(walkable & (labels == int(key))) * (step/1000)**2, 4) for key in rooms}
     return {"id": saved.map_id, "revision": revision, "bounds": bounds, "rooms": rooms, "svg": "".join(svg),
-            "footprint": footprint, "_footprint_bits": footprint_bits, "units_per_metre": 1000, "floor": {"grid_size": step, "runs": runs},
+            "footprint": footprint, "_footprint_bits": footprint_bits, "geometry_key": geometry_key,
+            "units_per_metre": 1000, "floor": {"grid_size": step, "runs": runs},
             "room_area_m2": room_area, "_room_keys": room_keys}
 
 

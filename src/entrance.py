@@ -2,12 +2,57 @@
 import json
 from hashlib import sha256
 
+import numpy as np
+
 from config import Refused, atomic, integer, read
 from jobs import MAX_ZONES, check_zone_geometry
+from underlay import close_footprints
 
 
 def _fingerprint(value):
     return sha256(json.dumps(value, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+
+
+def _zone_geometry(plan, zones):
+    anchor = plan.get("geometry_key")
+    bits = plan.get("_footprint_bits")
+    if not anchor or not bits:
+        return None
+    left, bottom, right, top = plan["bounds"]
+    grid = plan["floor"]["grid_size"]
+    width, height = (right - left) // grid, (top - bottom) // grid
+    occupied = np.unpackbits(np.frombuffer(bits, dtype=np.uint8), count=width * height).reshape(height, width)[::-1]
+    local = []
+    for zone in zones:
+        check_zone_geometry(zone, plan, grid)
+        x1, y1, x2, y2 = zone
+        # A contour edit in the adjoining grid cells can change the physical entrance.
+        col0, row0 = max(0, (x1 - left) // grid - 1), max(0, (y1 - bottom) // grid - 1)
+        col1 = min(width, (x2 - left + grid - 1) // grid + 1)
+        row1 = min(height, (y2 - bottom + grid - 1) // grid + 1)
+        outline = np.packbits(occupied[row0:row1, col0:col1]).tobytes()
+        floor = []
+        for y, start, end in plan["floor"]["runs"]:
+            if y >= y2:
+                break
+            if y + grid > y1 and start < x2 and end > x1:
+                floor.append([max(y, y1), min(y + grid, y2), max(start, x1), min(end, x2)])
+        local.append([sha256(outline).hexdigest(), floor])
+    return {"anchor": anchor, "footprint": bits.hex(), "local": _fingerprint(local)}
+
+
+def _compatible(item, plan):
+    if "geometry" not in item:
+        return item["revision"] == plan["revision"]
+    reference = item["geometry"]
+    if not isinstance(reference, dict) or reference.get("anchor") != plan.get("geometry_key"):
+        return False
+    try:
+        current = _zone_geometry(plan, item["zones"])
+        return (current is not None and reference["local"] == current["local"]
+                and close_footprints(bytes.fromhex(reference["footprint"]), bytes.fromhex(current["footprint"])))
+    except (KeyError, TypeError, ValueError):
+        return False
 
 
 class Entrance:
@@ -16,13 +61,15 @@ class Entrance:
 
     def _read(self):
         try:
+            if self.path.stat().st_size > 80_000:
+                raise ValueError
             item = read(self.path)
             if not isinstance(item, dict) or not {"binding", "map_id", "revision", "zones"} <= item.keys():
                 raise ValueError
             return item
         except FileNotFoundError:
             return None
-        except (OSError, ValueError):
+        except (OSError, ValueError, RecursionError):
             raise Refused("Не удалось прочитать сохранённый сценарий входа.") from None
 
     def view(self, device_id, plan):
@@ -30,7 +77,7 @@ class Entrance:
         if item is None:
             return {"version": None, "status": "empty"}
         same = (device_id and plan and item["binding"] == _fingerprint(device_id)
-                and item["map_id"] == plan["id"] and item["revision"] == plan["revision"])
+                and item["map_id"] == plan["id"] and _compatible(item, plan))
         result = {"version": _fingerprint(item), "status": "ready" if same else "stale"}
         if same:
             result["zones"] = item["zones"]
@@ -54,6 +101,12 @@ class Entrance:
             raise Refused("В сценарии есть повторяющаяся зона.")
         for z in zones:
             check_zone_geometry(z, plan, plan["floor"]["grid_size"])
-        atomic(self.path, {"binding": _fingerprint(device_id), "map_id": plan["id"],
-                           "revision": plan["revision"], "zones": zones})
+        saved = {"binding": _fingerprint(device_id), "map_id": plan["id"],
+                 "revision": plan["revision"], "zones": zones}
+        geometry = _zone_geometry(plan, zones)
+        if geometry is not None:
+            saved["geometry"] = geometry
+        elif "geometry_key" in plan:
+            raise Refused("Привязка к карте не подтверждена. Обновите карту и выберите участок у входа заново.")
+        atomic(self.path, saved)
         return self.view(device_id, plan)
