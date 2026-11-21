@@ -1,7 +1,7 @@
 """Read-only panel details from the device's reported properties and history cache."""
 from datetime import datetime
 from enum import IntEnum
-from math import isfinite
+from math import ceil, isfinite
 from time import time
 
 from vendor.types import CleaningStatus
@@ -63,6 +63,10 @@ CONSUMABLES = (
     (P.DIRTY_WATER_CHANNEL_DIRTY_LEFT, "Ресурс до очистки канала грязной воды"),
     (P.SCALE_INHIBITOR_LEFT, "Ресурс средства от накипи"),
 )
+
+# Units match the vendor integration. TIME_LEFT alone does not distinguish hours from days.
+DAY_SUPPLIES = {P.SILVER_ION_LEFT, P.DETERGENT_LEFT, P.WASHBOARD_CLEANING_LEFT, P.SCALE_INHIBITOR_LEFT}
+CLEANING_HOUR_SUPPLIES = {P.MAIN_BRUSH_LEFT, P.SIDE_BRUSH_LEFT, P.FILTER_LEFT}
 
 TOGGLE = {0: "Выкл.", 1: "Вкл."}
 SUCTION_LABELS = {0: "Тихая", 1: "Стандартная", 2: "Сильная", 3: "Турбо"}
@@ -159,9 +163,25 @@ def _history(cache, cleaning_count):
     return [row for row, _ in records.values()], available
 
 
-def _add(rows, label, value, unit=None, *, key=None):
+def _recent_hours_per_day(history, now):
+    """Use full 24-hour intervals covered by the archive, up to four weeks."""
+    if not history or now - history[0]["timestamp"] > 7 * 86400:
+        return None
+    days = min(28, int((now - history[-1]["timestamp"]) // 86400))
+    if days < 7:
+        return None
+    start = now - days * 86400
+    recent = [row for row in history if start <= row["timestamp"] <= now]
+    active_days = {int((now - row["timestamp"]) // 86400) for row in recent}
+    if len(active_days) < 3 or any("duration_min" not in row for row in recent):
+        return None
+    hours = sum(row["duration_min"] for row in recent) / 60
+    return hours / days if 0 < hours <= 24 * days else None
+
+
+def _add(rows, label, value, unit=None, *, key=None, **extra):
     if value is not None:
-        row = {"label": label, "value": value}
+        row = {"label": label, "value": value, **extra}
         if key is not None:
             row["key"] = key.name.lower()
         if unit is not None:
@@ -190,8 +210,20 @@ def read_details(device, *, current=None):
         _add(metrics, "Прогресс сушки салфеток", _number(get(P.DRYING_PROGRESS), 100), "%", key=P.DRYING_PROGRESS)
     for prop, label, unit in TOTALS:
         _add(metrics, label, _number(get(prop)), unit, key=prop)
+    history, available = _history(getattr(device.status, "_cleaning_history", None), _number(get(P.CLEANING_COUNT)))
+    hours_per_day = _recent_hours_per_day(history, time())
     for prop, label in CONSUMABLES:
-        _add(metrics, label, _number(get(prop), 100), "%", key=prop)
+        percent = _number(get(prop), 100)
+        time_prop = P[prop.name.removesuffix("_LEFT") + "_TIME_LEFT"]
+        remaining = _number(get(time_prop))
+        unit = "дн." if prop in DAY_SUPPLIES else "ч"
+        timing = {}
+        if remaining is not None:
+            timing["days" if prop in DAY_SUPPLIES else "hours"] = remaining
+            if prop in CLEANING_HOUR_SUPPLIES and hours_per_day:
+                timing["estimated_days"] = ceil(remaining / hours_per_day)
+        _add(metrics, label, percent if percent is not None else remaining,
+             "%" if percent is not None else unit, key=prop, **timing)
 
     settings = []
     if type(get(P.CLEANING_MODE)) is int:
@@ -202,5 +234,4 @@ def read_details(device, *, current=None):
             value = int(value)
         _add(settings, label, _choice(value, labels))
 
-    history, available = _history(getattr(device.status, "_cleaning_history", None), _number(get(P.CLEANING_COUNT)))
     return {"history": history, "history_available": available, "metrics": metrics, "settings": settings}

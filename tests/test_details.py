@@ -113,6 +113,33 @@ class DetailsTest(unittest.TestCase):
             "Защита от детей": "Выкл.",
         })
 
+    def test_consumable_time_uses_vendor_units_and_calendar_estimates_need_observed_usage(self):
+        now = int(time())
+        # The old boundary row covers ten full days. Only newer cleaning time counts.
+        history = [cleaning(now - 36 * 3600 - day * 86400, cleaning_time=120) for day in (0, 2, 4, 6, 8)]
+        history.append(cleaning(now - 10 * 86400 - 3600, cleaning_time=90))
+        readings = {P.MAIN_BRUSH_LEFT: 25, P.MAIN_BRUSH_TIME_LEFT: 75,
+                    P.FILTER_TIME_LEFT: 0, P.SIDE_BRUSH_LEFT: 86,
+                    P.SCALE_INHIBITOR_LEFT: 90, P.SCALE_INHIBITOR_TIME_LEFT: 980,
+                    P.WASHBOARD_CLEANING_TIME_LEFT: 0, P.DETERGENT_TIME_LEFT: -1,
+                    P.MOP_PAD_TIME_LEFT: 7, P.TANK_FILTER_TIME_LEFT: False}
+        def metrics(events):
+            return {r["key"]: r for r in read_details(fixture(readings, events))["metrics"]}
+        rows = metrics(history)
+        brush = rows["main_brush_left"]
+        self.assertEqual((brush["value"], brush["unit"], brush["hours"], brush["estimated_days"]), (25, "%", 75, 75))
+        self.assertEqual((rows["filter_left"]["unit"], rows["filter_left"]["estimated_days"]), ("ч", 0))
+        self.assertNotIn("hours", rows["side_brush_left"])
+        self.assertEqual(rows["scale_inhibitor_left"]["days"], 980)
+        self.assertNotIn("estimated_days", rows["scale_inhibitor_left"])
+        self.assertEqual((rows["washboard_cleaning_left"]["days"], rows["washboard_cleaning_left"]["unit"]), (0, "дн."))
+        self.assertNotIn("estimated_days", rows["mop_pad_left"])
+        self.assertNotIn("tank_filter_left", rows)
+        self.assertNotIn("detergent_left", rows)
+        missing_duration = [*history, cleaning(now - 3600, cleaned_area=4)]
+        for incomplete in (None, history[:2], missing_duration, history[-2:]):
+            self.assertNotIn("estimated_days", metrics(incomplete)["main_brush_left"])
+
     def test_observe_refreshes_known_station_properties_in_the_same_read(self):
         properties = {P.DUST_BAG_STATUS: 1, P.SELF_WASH_BASE_STATUS: 2, P.DRYING_PROGRESS: 30}
         device = fixture(properties)

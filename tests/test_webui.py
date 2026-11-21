@@ -1,4 +1,5 @@
 import json
+import re
 import os
 import socket
 import stat
@@ -58,7 +59,11 @@ class GateServiceTest(unittest.TestCase):
                 directives = dict(part.strip().split(" ", 1) for part in policy.split(";"))
                 self.assertEqual(directives["connect-src"], "'self'")
                 photo_root = "https://api.ru.dreametech.com/media/catalog/product/cache/74c1057f7991b4edb2bc7bdaa94de933/s/"
-                self.assertEqual(set(directives["img-src"].split()), {
+                sources = set(directives["img-src"].split())
+                parts = {source for source in sources if source.startswith("https://fr.dreametech.com/cdn/shop/files/")}
+                self.assertEqual(len(parts), 7)
+                self.assertTrue(all(re.fullmatch(r"https://fr\.dreametech\.com/cdn/shop/files/[\w.-]+_160x\.(?:png|jpg)", path) for path in parts))
+                self.assertEqual(sources - parts, {
                     "'self'", "data:", photo_root + "xaAkaRJMGwWN5Bx/download/03.jpg", photo_root + "EPRqR47CysdkPBc/download/05.jpg",
                 })
             finally:

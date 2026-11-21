@@ -12,6 +12,13 @@ from config import Refused
 
 DREAME_PHOTOS = "https://api.ru.dreametech.com/media/catalog/product/cache/74c1057f7991b4edb2bc7bdaa94de933/s/"
 
+ACCESSORY_FILES = (
+    "RollerBrush-_02_1_160x.jpg", "output_160x.jpg", "output_7ecbea13-05d4-4e0e-8147-3d161e37029a_160x.jpg",
+    "1_d09c295f-0c12-4a23-9a99-50c7e22121d5_160x.jpg", "output_2_edff9d8a-7f55-4426-af76-7935a11acdda_160x.jpg",
+    "14_160x.png", "Scale_inhibitor_160x.jpg",
+)
+ACCESSORY_PHOTOS = " ".join("https://fr.dreametech.com/cdn/shop/files/" + name for name in ACCESSORY_FILES)
+
 
 class WebConflict(Exception):
     pass
@@ -37,7 +44,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Security-Policy", "default-src 'self'; connect-src 'self'; object-src 'none'; "
                          "frame-ancestors 'self'; base-uri 'none'; style-src 'self' 'unsafe-inline'; img-src 'self' data: "
                          f"{DREAME_PHOTOS}xaAkaRJMGwWN5Bx/download/03.jpg "
-                         f"{DREAME_PHOTOS}EPRqR47CysdkPBc/download/05.jpg")
+                         f"{DREAME_PHOTOS}EPRqR47CysdkPBc/download/05.jpg {ACCESSORY_PHOTOS}")
         self.send_header("X-Frame-Options", "SAMEORIGIN")
         self.end_headers()
         self.wfile.write(data)
