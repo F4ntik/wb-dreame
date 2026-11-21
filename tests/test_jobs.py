@@ -26,6 +26,14 @@ class JobsTest(unittest.TestCase):
         self.request = {"request_id": "job-1", "action": "start", "kind": "rooms", "rooms": [3, 2],
                         "map_id": self.plan["id"], "revision": self.plan["revision"]}
 
+    def test_scenario_in_progress_accepts_pause_stop_and_return(self):
+        running = dict(self.snap, state="SHORTCUT", task="AUTO_CLEANING")
+        for action in ("pause", "stop", "dock"):
+            with self.subTest(action=action):
+                request = {"action": action, "request_id": "native-control"}
+                self.assertEqual(self.jobs.preview(request, running, self.plan)["request"], request)
+        self.assertFalse(self.robot.mock_calls)
+
     def test_preview_and_disabled_do_not_reserve_or_send(self):
         preview = self.jobs.preview(self.request, self.snap, self.plan)
         self.assertEqual(preview["request"]["rooms"], [3, 2])

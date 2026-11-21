@@ -60,6 +60,8 @@ class ScenariosTest(unittest.TestCase):
             with self.assertRaises(Refused):
                 jobs.submit(request,self.robot,snap,self.plan,True)
             self.assertFalse(self.sent)
+        with self.assertRaises(Refused):
+            start_shortcut(self.robot, 32)
         with check_writes_with(lambda: False),self.assertRaises(Refused):
             start_shortcut(self.robot,32)
         with check_writes_with(lambda: True):
