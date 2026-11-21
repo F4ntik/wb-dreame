@@ -65,10 +65,10 @@ class Bridge:
         self.room_names.publish(None)
         self.latest = {**self.latest, "online": False, "state": status, "map": None, "_live_plan": None,
                        "tracking_active": False, "overlays": [], "camera": {}, "cleangenius": None}
-        for name in (*CHANNELS, *self.room_channels):
+        for name in CHANNELS:
             if name not in ("state_connection", "map_frame"):
                 self.pub("/controls/" + name + "/meta/error", "r")
-        self.room_channels = dict.fromkeys(self.room_channels)
+        self.publish_room_channels(None)
         self.publish_map(None)
         self.pub("/meta/error", "r")
         return self.pub("/controls/state_connection", status)
@@ -103,9 +103,14 @@ class Bridge:
         self.pub("/controls/state_connection", "На связи")
 
     def publish_room_channels(self, plan):
+        if plan is None:
+            for channel in self.room_channels:
+                self.pub(f"/controls/{channel}/meta/error", "r")
+            self.room_channels = dict.fromkeys(self.room_channels)
+            return
         aliases = self.room_names.for_map(plan)
         names = {f"room_{room}": aliases.get(room, {}).get("alias") or title
-                 for room, title in (plan or {}).get("rooms", {}).items() if f"room_{room}" in ROOM_CHANNELS}
+                 for room, title in plan["rooms"].items() if f"room_{room}" in ROOM_CHANNELS}
         for channel in self.room_channels.keys() - names.keys():
             for suffix in SUFFIXES:
                 self.pub(f"/controls/{channel}{suffix}", "")
@@ -394,7 +399,7 @@ class Bridge:
             if self.mqtt:
                 try:
                     # Older releases can claim only the original seven controls after a downgrade.
-                    self.publish_room_channels(None)
+                    self.publish_room_channels({"rooms": {}})
                     stopped = self.offline("Служба остановлена")
                     if stopped is not None:
                         stopped.wait_for_publish(timeout=2)
