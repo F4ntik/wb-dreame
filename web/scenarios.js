@@ -26,7 +26,9 @@ export function scenarios(ui) {
     const disabled = !ui.online() || !ui.map() || ui.busy() || pending;
     apply.hidden = entrance?.status !== 'ready';
     apply.disabled = edit.disabled = disabled || !entrance;
-    save.disabled = disabled || !editor || !ui.zones()?.length;
+    const clear = Boolean(editor?.version) && ui.zoneCount() === 0;
+    save.textContent = clear ? 'Сбросить сценарий' : 'Сохранить сценарий';
+    save.disabled = disabled || !editor || (!clear && !ui.zones()?.length);
     byId('entrance-cancel').disabled = pending;
     if (!host.open) return;
     refresh.disabled = disabled;
@@ -102,16 +104,19 @@ export function scenarios(ui) {
     if (!editor) return;
     await run(async () => {
       const map = ui.map(), zones = ui.zones(), current = editor;
-      if (!map || !zones?.length || !current || current.id !== map.id || current.revision !== map.revision)
+      const clear = Boolean(current?.version) && ui.zoneCount() === 0;
+      if (!map || (!clear && !zones?.length) || !current || current.id !== map.id || current.revision !== map.revision)
         throw new Error('Карта изменилась. Откройте сценарий заново.');
+      if (clear && !await ui.confirm('Сбросить «Песок у входа»?', 'С контроллера будут удалены сохранённые зоны и параметры этого сценария.', 'Сбросить')) return;
+      if (current !== editor || map.revision !== ui.map()?.revision) throw new Error('Карта изменилась. Обновите сценарий.');
       const controls = [byId('map'), byId('job-form')];
       controls.forEach(el => { el.inert = true; });
       try {
         entrance = await fetchScenario('entrance', {version:current.version, map_id:map.id, revision:map.revision,
-          zones, settings:ui.tuning()});
+          ...(clear ? {action:'clear'} : {zones, settings:ui.tuning()})});
       } finally { controls.forEach(el => { el.inert = false; }); }
       if (current !== editor) return;
-      endEditor('«Песок у входа» сохранён на контроллере.');
+      endEditor(clear ? 'Настройки сценария сброшены.' : '«Песок у входа» сохранён на контроллере.');
       edit.focus();
     });
   }

@@ -93,12 +93,16 @@ class Entrance:
     def save(self, device_id, plan, displayed, data):
         if not device_id or not plan or not displayed:
             raise Refused("Дождитесь связи с пылесосом и его карты.")
-        if (set(data) - {"settings"} != {"version", "map_id", "revision", "zones"}
+        clear = set(data) == {"action", "version", "map_id", "revision"} and data["action"] == "clear"
+        if (not clear and set(data) - {"settings"} != {"version", "map_id", "revision", "zones"}
                 or not integer(data["map_id"], 1, 2**31-1) or data["map_id"] != displayed["id"]
                 or data["revision"] != displayed["revision"]):
             raise Refused("Карта изменилась. Выберите участок у входа заново.")
         if data["version"] != self.view(device_id, plan)["version"]:
             raise Refused("Сценарий уже изменили. Обновите панель.")
+        if clear:
+            self.path.unlink(missing_ok=True)
+            return {"version": None, "status": "empty"}
         zones = data["zones"]
         if (not isinstance(zones, list) or not 1 <= len(zones) <= MAX_ZONES
                 or any(not isinstance(z, list) or len(z) != 4

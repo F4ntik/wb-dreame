@@ -1367,7 +1367,7 @@ if (retry) notify('Исход предыдущей команды неизвес
 scenarioPanel = scenarios({
   map: () => map, online: () => telemetry.online === true, busy: () => busy || Boolean(drag) || Boolean(preferenceBusy) || modal.open,
   zones: () => target === 'zone' ? jobZones() : null,
-  tuning, summary: tuningSummary,
+  tuning, summary: tuningSummary, zoneCount: () => zones.length,
   draft: () => ({target, zones:zones.map(z => [...z]), selected:selectedZone, tuning:tuning()}),
   restore: draft => {
     stopZoneDrag();

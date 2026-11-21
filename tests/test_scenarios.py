@@ -101,3 +101,10 @@ class ScenariosTest(unittest.TestCase):
         del item["settings"]
         path.write_text(json.dumps(item), encoding="utf8")
         self.assertEqual(store.view("one", self.plan)["settings"], {"repeats": 1})
+
+        clear = {"action": "clear", "map_id": 12, "revision": self.plan["revision"], "version": saved["version"]}
+        with self.assertRaises(Refused):
+            store.save("one", self.plan, self.plan, clear)
+        clear["version"] = store.view("one", self.plan)["version"]
+        self.assertEqual(store.save("one", self.plan, self.plan, clear)["status"], "empty")
+        self.assertFalse(path.exists())
