@@ -6,35 +6,40 @@
 .view-heading h2 { font-size: clamp(1.35rem, 2vw, 1.72rem); line-height: 1.2; letter-spacing: -.035em; }
 [role=tabpanel] > .detail-card + .detail-card { margin-top: .7rem; }
 .service-panel, .journal { padding: clamp(1rem, 2.2vw, 1.65rem); }
-#resource-empty { padding-top: .9rem; }
-.service-totals { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: .6rem; margin: 1.1rem 0; }
-.service-total { display: grid; grid-template-columns: 1.25rem 1fr; align-items: center; gap: .2rem .45rem; background: #f3f6f3; border-radius: 13px; padding: .7rem 1rem; color: #486552; }
-.service-total span { font-size: .8rem; }
-.service-total strong { grid-column: 1 / -1; color: #1e3428; font-size: clamp(1.05rem, 2.2vw, 1.65rem); letter-spacing: -.04em; font-variant-numeric: tabular-nums; }
-.service-layout { display: grid; grid-template-columns: minmax(245px,.85fr) minmax(0,1.5fr); gap: clamp(.9rem, 2.4vw, 2rem); align-items: start; }
-.hardware-diagram { position: relative; background: radial-gradient(ellipse at 48% 44%,#fefef8,#eff3e8 72%,#e4ebdd); border: 1px solid #e1e8de; border-radius: 15px; overflow: hidden; }
-.hardware-diagram svg { display: block; width: 100%; height: auto; }
-.part-switch { position: absolute; font-size: clamp(.68rem,1.2vw,.85rem); padding: .1rem .6rem; min-height: 36px; border-radius: 99px; color: #465d50; background: #ffffffec; border-color: #b6c7bb; }
-.part-switch[aria-pressed=true] { color: #fff; background: #175e4a; border-color: #175e4a; }
-.part-switch:hover:not(:disabled) { color: #123e31; }
-.dock-switch { left: 4%; top: 6%; }
-.robot-switch { right: 3%; top: 30%; }
-.component-leader { transition: opacity .18s; }
-[data-part=robot] .dock-leader, [data-part=dock] .robot-leader { opacity: .33; }
-.part-readings h3 { margin: 0 0 .65rem; font-size: 1.1rem; }
-.supply-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: .65rem; }
-.supply-item { display: grid; gap: .4rem; align-content: start; background: #fafbf9; border: 1px solid #e2eae3; border-radius: 12px; padding: .75rem .85rem; }
-.supply-item strong { font-size: 1.3rem; letter-spacing: -.045em; font-variant-numeric: tabular-nums; }
-.supply-title, .service-status dt { display: flex; align-items: center; gap: .5rem; }
-.supply-title { color: #486051; font-size: .8rem; }
-.supply-item progress { width: 100%; appearance: none; border: 0; height: 5px; border-radius: 5px; background: #dce8df; color: #318469; }
-.supply-item progress::-webkit-progress-bar { background: #dce8df; border-radius: 5px; }
-.supply-item progress::-webkit-progress-value { background: #318469; border-radius: 5px; }
-.supply-item progress::-moz-progress-bar { background: #318469; border-radius: 5px; }
-.service-status:not(:empty) { margin-top: .75rem; }
-.service-status > div { display: flex; justify-content: space-between; align-items: baseline; gap: .6rem; font-size: .85rem; padding: .4rem 0; border-top: 1px solid #e6ede8; }
-.service-status dt { color: #485c50; }
-.service-status dd { font-weight: 630; text-align: right; }
+#resource-photo-credit { color: var(--accent); font-size: .75rem; text-underline-offset: .18em; white-space: nowrap; }
+#resource-empty { margin-top: .75rem; font-size: .86rem; }
+.service-totals { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: .6rem; margin-top: 1rem; }
+.service-total { min-width: 0; background: #f0f6f3; border-radius: 12px; padding: .65rem .85rem; }
+.service-total dt { display: flex; gap: .4rem; align-items: center; color: #405f55; font-size: .77rem; line-height: 1.2; }
+.service-total dd { margin-top: .15rem; font-size: clamp(1rem, 2.2vw, 1.55rem); font-weight: 710; line-height: 1.22; overflow-wrap: anywhere; }
+.service-total dd, .service-primary dd, .service-status dd, .supply-item dd { font-variant-numeric: tabular-nums; }
+.service-layout { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: .85rem; align-items: start; margin-top: 1rem; }
+.service-device { min-width: 0; padding: .85rem; border: 1px solid #dce7e3; border-radius: 15px; }
+.service-device-heading { display: grid; grid-template-columns: auto minmax(0,1fr); align-items: center; gap: .85rem; padding: .65rem; border-radius: 11px; background: #f0f6f3; }
+.service-device-heading h3 { margin: 0; font-size: clamp(1.05rem,2.2vw,1.35rem); letter-spacing: -.025em; }
+.service-device-photo { position: relative; display: grid; place-items: center; width: clamp(4.4rem,9vw,6rem); aspect-ratio: 1; overflow: hidden; border: 1px solid #e0ebe5; border-radius: 9px; background: #fff; color: #23725f; }
+.service-device-photo .ui-glyph { width: 2.35rem; height: 2.35rem; stroke-width: 1.25; }
+.service-device-photo img { position: absolute; inset: 0; width: 100%; height: 100%; padding: .26rem; object-fit: contain; opacity: 0; }
+.service-device-photo img[data-loaded] { opacity: 1; }
+.service-device-photo img[data-loaded] + svg { visibility: hidden; }
+.service-primary:not(:empty) { margin-top: .22rem; }
+.service-primary dt, .service-status dt, .supply-item dt { display: flex; gap: .42rem; align-items: center; color: #48605a; font-size: .77rem; line-height: 1.2; }
+.service-primary dt .ui-glyph, .service-status dt .ui-glyph, .supply-item dt .ui-glyph { width: .95rem; height: .95rem; color: #287360; }
+.service-primary dd { margin-top: .12rem; font-size: .9rem; font-weight: 670; line-height: 1.28; }
+.service-status { display: grid; grid-template-columns: repeat(auto-fit,minmax(min(100%, 13rem),1fr)); gap: 0 .65rem; }
+.service-status:not(:empty), .service-device-empty { margin-top: .45rem; }
+.service-status > div { padding: .4rem .15rem; border-bottom: 1px solid #e5eeea; }
+.service-status dd { margin: .1rem 0 0 1.37rem; font-size: .82rem; font-weight: 640; line-height: 1.28; overflow-wrap: anywhere; }
+.service-device-empty { font-size: .82rem; }
+.supply-heading { margin: .7rem 0 .35rem; color: #304d44; font-size: .82rem; }
+.supply-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: .45rem; }
+.supply-item { display: grid; align-content: space-between; gap: .35rem; min-width: 0; background: #f7faf8; border: 1px solid #e2ebe6; border-radius: 9px; padding: .45rem .55rem; }
+.supply-item dd { font-size: 1.05rem; font-weight: 700; line-height: 1.24; }
+.supply-item[data-empty=true] dd { color: #8d432a; }
+.supply-item meter { display: block; width: 100%; height: .35rem; margin-top: .25rem; appearance: none; background: #dce9e4; border: 0; border-radius: 1rem; }
+.supply-item meter::-webkit-meter-bar { height: .35rem; background: #dce9e4; border: 0; border-radius: 1rem; }
+.supply-item meter::-webkit-meter-optimum-value { background: #248368; border-radius: 1rem; }
+.supply-item meter::-moz-meter-bar { background: #248368; border-radius: 1rem; }
 .journal .history-toolbar { margin: .8rem 0; }
 .journal-date { margin: .95rem 0 .25rem; font-size: .77rem; color: #576a5e; font-weight: 650; }
 .journal-group { margin: 0; padding: 0; list-style: none; }
@@ -52,16 +57,23 @@
 .journal-arrow { font-size: 1.3rem; }
 .journal-pages { display: flex; justify-content: space-between; align-items: center; gap: .6rem; margin-top: .9rem; font-size: .82rem; color: #40584c; }
 .journal-pages button { min-height: 44px; }
+@media (min-width: 1050px) {
+  .service-status { grid-template-columns: repeat(auto-fit,minmax(9.75rem,1fr)); }
+  .supply-grid { grid-template-columns: repeat(3,minmax(0,1fr)); }
+}
 @media (max-width: 650px) {
   .view-tabs { width: 100%; display: grid; grid-template-columns: repeat(5,minmax(0,1fr)); gap: 1px; padding: 3px; }
   .view-tabs button { flex-direction: column; min-width: 0; gap: .12rem; min-height: 46px; font-size: clamp(.58rem,2.55vw,.78rem); padding: .26rem 0; }
-  .service-layout { grid-template-columns: 1fr; }
-  .hardware-diagram { width: min(100%, 390px); justify-self: center; }
-  .service-totals { gap: .3rem; }
-  .service-total { gap: .22rem; grid-template-columns: 1fr; padding: .6rem .46rem; }
-  .service-total strong { font-size: .96rem; }
-  .service-total span { font-size: .7rem; }
-  .part-switch { min-height: 44px; }
+  #resource-photo-credit { font-size: .7rem; }
+  .service-layout { grid-template-columns: minmax(0,1fr); gap: .65rem; }
+  .service-device { padding: .6rem; }
+  .service-totals { gap: .35rem; }
+  .service-total { padding: .5rem; }
+  .service-total dt { align-items: start; gap: .25rem; font-size: .69rem; }
+  .service-total dt .ui-glyph { width: .86rem; height: .86rem; }
+  .service-total dd { margin-top: .3rem; }
+  .service-status > div { display: flex; justify-content: space-between; align-items: baseline; gap: .5rem; }
+  .service-status dd { margin: 0; text-align: right; }
   .journal-row { grid-template-columns: 2.1rem minmax(0,1fr) auto .55rem; gap: .1rem .55rem; }
   .journal-mark { height: 2.1rem; width: 2.1rem; }
   .journal-measures { justify-self: end; justify-content: end; gap: .4rem; }

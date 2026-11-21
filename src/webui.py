@@ -10,6 +10,8 @@ from urllib.parse import urlsplit
 
 from config import Refused
 
+DREAME_PHOTOS = "https://api.ru.dreametech.com/media/catalog/product/cache/74c1057f7991b4edb2bc7bdaa94de933/s/"
+
 
 class WebConflict(Exception):
     pass
@@ -33,7 +35,9 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("Referrer-Policy", "no-referrer")
         self.send_header("Content-Security-Policy", "default-src 'self'; connect-src 'self'; object-src 'none'; "
-                         "frame-ancestors 'self'; base-uri 'none'; style-src 'self' 'unsafe-inline'; img-src 'self' data:")
+                         "frame-ancestors 'self'; base-uri 'none'; style-src 'self' 'unsafe-inline'; img-src 'self' data: "
+                         f"{DREAME_PHOTOS}xaAkaRJMGwWN5Bx/download/03.jpg "
+                         f"{DREAME_PHOTOS}EPRqR47CysdkPBc/download/05.jpg")
         self.send_header("X-Frame-Options", "SAMEORIGIN")
         self.end_headers()
         self.wfile.write(data)

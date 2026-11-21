@@ -16,6 +16,8 @@ const strokes = {
   bag: 'M4 8h16l-1 12H5z M8 8V5h8v3m-7 5h6',
   sensor: 'M4 12a8 8 0 0 1 16 0 M7 12a5 5 0 0 1 10 0 M10 12a2 2 0 0 1 4 0 M12 16v4',
   charge: 'M13 2 5 14h6l-1 8 9-13h-6z', dock: 'M5 5h14v16H5z M8 8h8m-9 8h10',
+  robot: 'M3 13a9 6 0 0 1 18 0v2a9 6 0 0 1-18 0z M3 13a9 6 0 0 0 18 0 M10 10a2 1 0 1 0 4 0 2 1 0 1 0-4 0 M9 20l-3 2m9-2 3 2',
+  dry: 'M4 8h12a2 2 0 1 0-2-2 M4 12h15a2 2 0 1 1-2 2 M4 16h7a2 2 0 1 1-2 2',
 };
 const ns = 'http://www.w3.org/2000/svg';
 export function glyph(name) {
@@ -60,19 +62,23 @@ export function initViews() {
 }
 
 const totalMetrics = {
-  cleaning_count: ['Уборок', 'clean'], total_cleaned_area: ['Убрано', 'area'], total_cleaning_time: ['В работе', 'time'],
+  cleaning_count: ['Всего уборок', 'clean'], total_cleaned_area: ['Площадь уборок', 'area'], total_cleaning_time: ['Время уборок', 'time'],
 };
 const supplies = {
   main_brush_left: ['robot', 'Основная щётка', 'brush'], side_brush_left: ['robot', 'Боковая щётка', 'spin'],
   filter_left: ['robot', 'Фильтр пылесоса', 'filter'], mop_pad_left: ['robot', 'Салфетки', 'drop'],
   sensor_dirty_left: ['robot', 'До очистки датчиков', 'sensor'], tank_filter_left: ['dock', 'Фильтр бака', 'filter'],
-  detergent_left: ['dock', 'Моющее средство', 'drop'], silver_ion_left: ['dock', 'Модуль с ионами серебра', 'tank'],
+  detergent_left: ['dock', 'Остаток моющего средства', 'drop'], silver_ion_left: ['dock', 'Модуль с ионами серебра', 'tank'],
   washboard_cleaning_left: ['dock', 'До очистки поддона', 'dock'], dirty_water_channel_dirty_left: ['dock', 'До очистки слива', 'drop'],
   scale_inhibitor_left: ['dock', 'Средство от накипи', 'drop'],
 };
-const statusIcons = { charging_status: 'charge', clean_water_tank_status: 'tank', dirty_water_tank_status: 'tank',
-  dust_bag_status: 'bag', auto_empty_status: 'bag', detergent_status: 'drop', drying_progress: 'time' };
-const numbers = new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 1 });
+const statusIcons = { self_wash_base_status: 'dock', charging_status: 'charge', clean_water_tank_status: 'tank',
+  dirty_water_tank_status: 'tank', dust_bag_status: 'bag', auto_empty_status: 'bag', detergent_status: 'drop',
+  drying_progress: 'dry', dust_bag_drying_status: 'dry', station_drainage_status: 'drop' };
+const primaryMetrics = { robot: 'charging_status', dock: 'self_wash_base_status' };
+const photoBase = 'https://api.ru.dreametech.com/media/catalog/product/cache/74c1057f7991b4edb2bc7bdaa94de933/s/';
+const l40sPhotos = { robot: 'xaAkaRJMGwWN5Bx/download/03.jpg?w=256', dock: 'EPRqR47CysdkPBc/download/05.jpg?w=256' };
+const numbers = new Intl.NumberFormat('ru-RU');
 function el(tag, cls, value) {
   const node = document.createElement(tag);
   if (cls) node.className = cls;
@@ -80,59 +86,96 @@ function el(tag, cls, value) {
   return node;
 }
 function reading(row) {
-  if (row.key === 'total_cleaning_time' && Number.isInteger(row.value) && row.value >= 60) {
+  if (row.key === 'total_cleaning_time' && row.unit === 'мин' && Number.isInteger(row.value) && row.value >= 60) {
     const remainder = row.value % 60;
-    return Math.floor(row.value / 60) + ' ч' + (remainder ? ' ' + remainder + ' мин' : '');
+    return `${numbers.format(Math.floor(row.value / 60))}\u00a0ч${remainder ? ` ${numbers.format(remainder)}\u00a0мин` : ''}`;
   }
-  return (typeof row.value === 'number' ? numbers.format(row.value) : String(row.value)) + (row.unit ? ' ' + row.unit : '');
+  return (typeof row.value === 'number' ? numbers.format(row.value) : row.value) + (row.unit ? `\u00a0${row.unit}` : '');
 }
 
 export function resourceWidget(host) {
   const totals = host.querySelector('#resource-totals');
-  const parts = [...host.querySelectorAll('[data-part]')];
-  let current = 'robot';
-  let rows = [];
-  const owner = row => supplies[row.key]?.[0] || (row.key === 'charging_status' ? 'robot' : 'dock');
-  function draw() {
-    const present = rows.filter(row => !Object.hasOwn(totalMetrics, row.key));
-    const layout = host.querySelector('#resource-layout');
-    layout.hidden = !present.length;
-    if (!present.length) return;
-    if (!present.some(row => owner(row) === current)) current = owner(present[0]);
-    layout.dataset.part = current;
-    for (const btn of parts) {
-      btn.disabled = !present.some(row => owner(row) === btn.dataset.part);
-      btn.setAttribute('aria-pressed', String(btn.dataset.part === current));
-    }
-    host.querySelector('#part-name').textContent = current === 'robot' ? 'Робот' : 'Док-станция';
-    const cards = host.querySelector('#part-consumables'), status = host.querySelector('#part-status');
-    cards.replaceChildren();
-    status.replaceChildren();
-    for (const row of present.filter(row => current === owner(row))) {
-      const supply = supplies[row.key];
-      if (supply && Number.isFinite(row.value) && row.unit === '%') {
-        const card = el('div', 'supply-item');
-        const title = el('div','supply-title'); title.append(glyph(supply[2]), el('span', '', supply[1]));
-        const bar = el('progress'); bar.max = 100; bar.value = row.value; bar.setAttribute('aria-label', supply[1]);
-        card.append(title, el('strong','',reading(row)), bar);
-        cards.append(card);
-      } else {
-        const line = el('div'), title = el('dt');
-        title.append(glyph(statusIcons[row.key] || 'dock'), el('span','',row.label));
-        line.append(title, el('dd','',reading(row))); status.append(line);
+  const empty = host.querySelector('#resource-empty');
+  const credit = host.querySelector('#resource-photo-credit');
+  const parts = Object.fromEntries(['robot', 'dock'].map(name => {
+    const section = host.querySelector(`[data-resource-device=${name}]`);
+    const photo = section.querySelector('.service-device-photo');
+    photo.append(glyph(name));
+    return [name, { photo, primary: section.querySelector('.service-primary'), status: section.querySelector('.service-status'),
+      supplies: section.querySelector('.supply-grid'), supplyHeading: section.querySelector('.supply-heading'),
+      empty: section.querySelector('.service-device-empty') }];
+  }));
+  let hasPhotos = false;
+  return (metrics, model, online) => {
+    const showPhotos = model === 'Dreame L40s Pro Ultra';
+    if (hasPhotos !== showPhotos) {
+      for (const [name, part] of Object.entries(parts)) {
+        part.photo.querySelector('img')?.remove();
+        if (!showPhotos) continue;
+        const image = el('img');
+        image.alt = '';
+        image.loading = 'lazy';
+        image.decoding = 'async';
+        image.referrerPolicy = 'no-referrer';
+        image.addEventListener('load', () => { image.dataset.loaded = ''; }, { once: true });
+        image.addEventListener('error', () => image.remove(), { once: true });
+        image.src = photoBase + l40sPhotos[name];
+        part.photo.prepend(image);
       }
+      hasPhotos = showPhotos;
+      credit.hidden = !showPhotos;
     }
-  }
-  parts.forEach(btn => btn.addEventListener('click', () => { current = btn.dataset.part; draw(); }));
-  return metrics => {
-    rows = Array.isArray(metrics) ? metrics.filter(r => r && typeof r.label === 'string' && r.value != null) : [];
-    host.querySelector('#resource-empty').hidden = rows.length > 0;
     totals.replaceChildren();
-    for (const row of rows.filter(r => Object.hasOwn(totalMetrics, r.key))) {
-      const [title, icon] = totalMetrics[row.key], cell = el('div', 'service-total');
-      cell.append(glyph(icon), el('span', '', title), el('strong', '', reading(row))); totals.append(cell);
+    for (const part of Object.values(parts)) {
+      part.primary.replaceChildren();
+      part.status.replaceChildren();
+      part.supplies.replaceChildren();
+    }
+    const seen = new Set();
+    for (const row of Array.isArray(metrics) ? metrics : []) {
+      if (!row || typeof row.key !== 'string' || !row.key || typeof row.label !== 'string' || !row.label.trim()
+        || !(Number.isFinite(row.value) && row.value >= 0 || typeof row.value === 'string' && row.value.trim())
+        || seen.has(row.key)) continue;
+      seen.add(row.key);
+      const total = Object.hasOwn(totalMetrics, row.key) && totalMetrics[row.key];
+      if (total) {
+        const [title, icon] = total;
+        const tile = el('div', 'service-total');
+        const name = el('dt');
+        name.append(glyph(icon), el('span', '', title));
+        tile.append(name, el('dd', '', reading(row)));
+        totals.append(tile);
+        continue;
+      }
+      const supply = Object.hasOwn(supplies, row.key) && supplies[row.key];
+      const device = supply ? supply[0] : row.key === primaryMetrics.robot ? 'robot' : 'dock';
+      const part = parts[device];
+      const item = el('div');
+      const title = el('dt');
+      const value = el('dd', '', reading(row));
+      if (supply && row.unit === '%' && Number.isFinite(row.value) && row.value <= 100) {
+        title.append(glyph(supply[2]), el('span', '', supply[1]));
+        const meter = el('meter');
+        meter.max = 100;
+        meter.value = row.value;
+        meter.setAttribute('aria-hidden', 'true');
+        item.className = 'supply-item';
+        item.dataset.empty = String(row.value === 0);
+        value.append(meter);
+        part.supplies.append(item);
+      } else {
+        const label = row.key === primaryMetrics.dock ? 'Режим станции' : row.label;
+        title.append(glyph(statusIcons[row.key] || 'dock'), el('span', '', label));
+        (row.key === primaryMetrics[device] ? part.primary : part.status).append(item);
+      }
+      item.append(title, value);
     }
     totals.hidden = !totals.children.length;
-    draw();
+    empty.hidden = seen.size > 0;
+    empty.textContent = online ? 'Робот пока не передал показания.' : 'Показания робота недоступны.';
+    for (const part of Object.values(parts)) {
+      part.supplyHeading.hidden = !part.supplies.children.length;
+      part.empty.hidden = !seen.size || !!(part.primary.children.length || part.status.children.length || part.supplies.children.length);
+    }
   };
 }

@@ -48,7 +48,21 @@ class GateServiceTest(unittest.TestCase):
                     return response.status, response.read()
                 finally:
                     client.close()
-            self.assertEqual(call("GET", "/dreame/"), (200, b"OK"))
+            client = UnixHTTPConnection(directory / "web.sock")
+            try:
+                client.request("GET", "/dreame/")
+                response = client.getresponse()
+                self.assertEqual((response.status, response.read()), (200, b"OK"))
+                self.assertEqual(response.getheader("Referrer-Policy"), "no-referrer")
+                policy = response.getheader("Content-Security-Policy")
+                directives = dict(part.strip().split(" ", 1) for part in policy.split(";"))
+                self.assertEqual(directives["connect-src"], "'self'")
+                photo_root = "https://api.ru.dreametech.com/media/catalog/product/cache/74c1057f7991b4edb2bc7bdaa94de933/s/"
+                self.assertEqual(set(directives["img-src"].split()), {
+                    "'self'", "data:", photo_root + "xaAkaRJMGwWN5Bx/download/03.jpg", photo_root + "EPRqR47CysdkPBc/download/05.jpg",
+                })
+            finally:
+                client.close()
             self.assertEqual(json.loads(call("GET", "/dreame/api/state")[1]), {"online": False})
             headers = {"Content-Type": "application/json", "X-Dreame-Request": "1"}
             self.assertEqual(call("POST", "/dreame/api/job", "{}", {"Content-Type": "text/plain"})[0], 403)
