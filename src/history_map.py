@@ -4,6 +4,7 @@ from itertools import groupby
 
 import numpy as np
 
+from map_symbols import DOCK_WIDTH_FRACTION, dock_padding, dock_svg
 from room_status import room_outcomes
 from vendor.types import MapPixelType, PathType
 
@@ -61,10 +62,6 @@ def _pixels(frame, dim):
     return None
 
 
-def _screen_size(dim, turns):
-    return (dim.height, dim.width) if turns % 2 else (dim.width, dim.height)
-
-
 def _project(dim, turns, x, y):
     if not (_coordinate(x) and _coordinate(y)):
         return None
@@ -76,6 +73,17 @@ def _project(dim, turns, x, y):
     for _ in range(turns):
         x, y, width, height = y, width - x, height, width
     return x, y
+
+
+def _archive_view(map_data, dim, turns):
+    width, height = (dim.height, dim.width) if turns % 2 else (dim.width, dim.height)
+    dock_width = (max(width, height) + 2 * PADDING) * DOCK_WIDTH_FRACTION
+    position = map_data.charger_position
+    dock = _project(dim, turns, getattr(position, "x", None), getattr(position, "y", None))
+    padding = PADDING
+    if dock is not None:
+        padding = max(padding, dock_padding(*dock, (0, 0, width, height), dock_width))
+    return (padding, width + 2 * padding, height + 2 * padding), dock, dock_width
 
 
 def history_position(map_data, x, y):
@@ -90,11 +98,13 @@ def history_position(map_data, x, y):
     point = _project(dim, turns, x, y)
     if point is None:
         return None
-    return _image_percent(point, _screen_size(dim, turns))
+    view, _, _ = _archive_view(map_data, dim, turns)
+    return _image_percent(point, view)
 
 
-def _image_percent(point, screen_size):
-    return [round(100 * (p + PADDING) / (size + 2 * PADDING), 5) for p, size in zip(point, screen_size)]
+def _image_percent(point, view):
+    padding, width, height = view
+    return [round(100 * (p + padding) / size, 5) for p, size in zip(point, (width, height))]
 
 
 def _floor_palette(version):
@@ -184,17 +194,16 @@ def iter_route_sections(points, *, project=None):
         yield mode, section
 
 
-def _route(points, dim, turns):
+def _route(points, dim, turns, view):
     parts = defaultdict(list)
     route_sections = []
-    screen_size = _screen_size(dim, turns)
     for mode, section in iter_route_sections(points, project=lambda x, y: _project(dim, turns, x, y)):
         (x, y), *rest = section
         parts[mode].append(f"M{x:.3f} {y:.3f}")
         parts[mode].extend(f"L{x:.3f} {y:.3f}" for x, y in rest)
         route_sections.append({
             "mode": mode.value,
-            "points": [_image_percent(point, screen_size) for point in section],
+            "points": [_image_percent(point, view) for point in section],
         })
     svg = "".join(f'<path stroke="{ROUTE_COLORS[mode]}" d="{"".join(commands)}"/>' for mode, commands in parts.items())
     mop = "".join(f'<path d="{"".join(commands)}"/>' for mode, commands in parts.items()
@@ -275,28 +284,21 @@ def render_history(map_data):
     marked = coverage_pixels(map_data, dim)
     room_layer, room_statuses, observations = _archive_room_layers(map_data, pixels, dim, turns, marked)
     coverage = _coverage(marked, floor, turns)
-    route, route_sections, mop_route = _route(map_data.path, dim, turns)
+    view, dock, dock_width = _archive_view(map_data, dim, turns)
+    route, route_sections, mop_route = _route(map_data.path, dim, turns, view)
     has_coverage = bool(coverage)
     coverage_source = "frame" if has_coverage else None
     if not coverage and mop_route:
         coverage = _mop_trace(mop_route, floor >= 3, dim, turns)
         if coverage:
             coverage_source = "route"
-    station = ""
-    if map_data.charger_position is not None:
-        position = map_data.charger_position
-        charger = _project(dim, turns, getattr(position, "x", None), getattr(position, "y", None))
-        if charger is not None:
-            x, y = charger
-            station = (f'<circle cx="{x:.3f}" cy="{y:.3f}" r="2.1" fill="#163A49" stroke="white" stroke-width=".55"/>'
-                       f'<rect x="{x - .95:.3f}" y="{y - .60:.3f}" width="1.9" height="1.2" rx=".24" fill="white"/>')
-
-    width, height = _screen_size(dim, turns)
-    svg_width, svg_height = width + 2 * PADDING, height + 2 * PADDING
+    padding, svg_width, svg_height = view
+    station = dock_svg(*dock, dock_width) if dock is not None else ""
     prefix = (
-        f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="{-PADDING} {-PADDING} {svg_width} {svg_height}">'
+        f'<svg xmlns="http://www.w3.org/2000/svg" width="{svg_width}" height="{svg_height}" '
+        f'viewBox="{-padding} {-padding} {svg_width} {svg_height}">'
         '<title>Карта исторической уборки Dreame</title>'
-        f'<rect x="{-PADDING}" y="{-PADDING}" width="{svg_width}" height="{svg_height}" fill="#F6F9F9"/>'
+        f'<rect x="{-padding}" y="{-padding}" width="{svg_width}" height="{svg_height}" fill="#F6F9F9"/>'
         f'<g shape-rendering="crispEdges">{floor_svg}</g>'
     )
     coverage_start = '<g id="cleaning-coverage" opacity=".55" shape-rendering="crispEdges">'

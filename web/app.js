@@ -1,6 +1,6 @@
 import { adjustUnderlay, cleaningCoverage, dragZone, jobBlock, jobRequest, mapInfo, mapOverlays, mapView, maxZones, pendingRequest, pointOnMap, preferenceInfo,
   preferenceRequest, rectanglePaths, requestIdentity, roomStatusLabels, safeMapSvg, svgNS, underlayInfo, underlayUrl, zoneHitsNoGo, zoneInBounds,
-  zoneListInBounds, zoneMeasurePlacement, zoneMeasures, zoneProblem } from './controls.js';
+  zoneHandleLayout, zoneListInBounds, zoneMeasurePlacement, zoneMeasures, zoneProblem, zoneResizeCursor } from './controls.js';
 import { scenarios } from './scenarios.js';
 import { confirmMessage, initViews, panelNavigation } from './views.js';
 import { resourceWidget } from './resources.js';
@@ -22,6 +22,9 @@ const zoneBadge = byId('zone-measure');
 const zoneShelf = byId('zone-measure-shelf');
 const zoneSummary = byId('zone-measure-summary');
 const zoneTools = byId('zone-tools');
+const compactZoneTools = byId('compact-zone-tools');
+const zoneResizeTool = byId('zone-resize-tool');
+const coarsePointer = matchMedia('(any-pointer: coarse)');
 const zoneList = byId('zone-list');
 const addZone = byId('add-zone');
 const removeZone = byId('remove-zone');
@@ -176,6 +179,7 @@ function readZone() {
 }
 
 function selectZone(index) {
+  if (index !== selectedZone) byId('zone-move-tool').checked = true;
   selectedZone = index;
   const region = zones[index];
   zoneFields.forEach((field, i) => { field.value = Number.isFinite(region?.[i]) ? region[i] : ''; });
@@ -271,7 +275,8 @@ function updateOverlay() {
   zoneLayer?.replaceChildren(...rectangles);
   zonePins.replaceChildren(...pins);
   zoneBadge.hidden = !zone || !matrix || !mapHost.clientWidth;
-  zoneHandles.hidden = !zone;
+  zoneHandles.hidden = zoneBadge.hidden || Boolean(drag && !drag.zone);
+  if (zoneHandles.hidden) compactZoneTools.hidden = true;
   removeMapZone.hidden = !zone || !matrix || Boolean(drag);
   zoneSummary.hidden = !zone || Boolean(drag);
   if (!zone) return;
@@ -286,15 +291,19 @@ function updateOverlay() {
   if (!drag) label(zoneSummary, [dimensions, floor, warning].filter(Boolean).join('. '));
 
   if (zoneBadge.hidden) return;
-  const corners = [[x1, -y1], [x1, -y2], [x2, -y1], [x2, -y2]]
-    .map(([x, y]) => new DOMPoint(x, y).matrixTransform(matrix));
-  positionZoneHandles(corners, host);
   const left = host.left + mapHost.clientLeft;
   const top = host.top + mapHost.clientTop;
+  if (!zoneHandles.hidden) {
+    const corners = [[x1, -y1], [x1, -y2], [x2, -y1], [x2, -y2]].map(([x, y]) => {
+      const point = new DOMPoint(x, y).matrixTransform(matrix);
+      return { x: point.x - left, y: point.y - top };
+    });
+    positionZoneHandles(corners, zone);
+  }
   const frame = { left, top, right: left + mapHost.clientWidth, bottom: top + mapHost.clientHeight };
   const selected = rectangles.find(rect => rect.dataset.selected === 'true');
   const others = rectangles.filter(rect => rect !== selected).map(rect => rect.getBoundingClientRect());
-  const controls = [...zoneHandles.children];
+  const controls = zoneHandles.hidden ? [] : [...zoneHandles.children].filter(node => !node.hidden);
   if (!removeMapZone.hidden) controls.push(removeMapZone);
   const position = zoneMeasurePlacement(frame, selected.getBoundingClientRect(), controls.map(node => node.getBoundingClientRect()),
     zoneBadge.offsetWidth, zoneBadge.offsetHeight, others);
@@ -303,57 +312,55 @@ function updateOverlay() {
   zoneBadge.style.transform = position ? `translate(${position[0] - left}px, ${position[1] - top}px)` : '';
 }
 
-function positionZoneHandles([first, upper, right, last], host) {
-  const offset = (dx, dy) => {
-    const scale = Math.max(.5, 28 / Math.hypot(dx, dy));
-    return [dx * scale, dy * scale];
-  };
-  // Keep all handles reachable when either side is very short on screen.
-  const [xx, xy] = offset(right.x - first.x, right.y - first.y);
-  const [yx, yy] = offset(upper.x - first.x, upper.y - first.y);
-  const extentX = Math.abs(xx) + Math.abs(yx);
-  const extentY = Math.abs(xy) + Math.abs(yy);
-  const fit = (value, size, extent) => {
-    const inset = Math.min(size / 2, extent + 12);
-    return Math.max(inset, Math.min(size - inset, value));
-  };
-  const width = mapHost.clientWidth;
-  const height = mapHost.clientHeight;
-  const centreX = fit((first.x + last.x) / 2 - host.left - mapHost.clientLeft, width, extentX);
-  const centreY = fit((first.y + last.y) / 2 - host.top - mapHost.clientTop, height, extentY);
-  const place = (handle, x, y) => {
-    handle.style.left = `${fit(centreX + x, width, 0)}px`;
-    handle.style.top = `${fit(centreY + y, height, 0)}px`;
+function positionZoneHandles(corners, [x1, y1, x2, y2]) {
+  const [first, upper, right] = corners;
+  const xAngle = Math.atan2(right.y - first.y, right.x - first.x);
+  const yAngle = Math.atan2(upper.y - first.y, upper.x - first.x);
+  const layout = zoneHandleLayout(corners, coarsePointer.matches);
+  const [left, bottom, rightBound, top] = map.bounds;
+  // On a tiny zone, offer the corner with room to grow towards the map interior.
+  const cornerToResize = Number.isInteger(drag?.handle) ? drag.handle :
+    (rightBound - x2 >= x1 - left ? 2 : 0) + (top - y2 > y1 - bottom ? 1 : 0);
+  const resizeOnly = layout.compact && zoneResizeTool.checked;
+  const show = (key, available) => drag?.zone ? key === drag.handle : available;
+  compactZoneTools.hidden = !layout.compact;
+  compactZoneTools.disabled = Boolean(drag) || busy;
+  zoneHandles.style.setProperty('--zone-hit', `${layout.size}px`);
+  const place = (handle, { x, y }) => {
+    handle.style.left = `${x}px`;
+    handle.style.top = `${y}px`;
   };
   zoneCorners.forEach((handle, corner) => {
-    const x = corner < 2 ? -1 : 1;
-    const y = corner % 2 === 0 ? -1 : 1;
-    place(handle, x * xx + y * yx, x * xy + y * yy);
+    handle.hidden = !show(corner, layout.compact ? resizeOnly && corner === cornerToResize :
+      layout.fourCorners || corner === 1 || corner === 2);
+    const diagonal = corner === 1 || corner === 2 ? Math.PI / 4 : -Math.PI / 4;
+    handle.style.setProperty('--handle-cursor', zoneResizeCursor(xAngle + diagonal));
+    place(handle, corners[corner]);
   });
-  const [left, bottom, rightSide, top] = zoneSides;
-  place(left, -xx, -xy);
-  place(rightSide, xx, xy);
-  place(bottom, -yx, -yy);
-  place(top, yx, yy);
-  const xAngle = `${Math.atan2(xy, xx)}rad`;
-  const yAngle = `${Math.atan2(yy, yx)}rad`;
-  left.style.setProperty('--side-angle', yAngle);
-  rightSide.style.setProperty('--side-angle', yAngle);
-  bottom.style.setProperty('--side-angle', xAngle);
-  top.style.setProperty('--side-angle', xAngle);
-  place(zoneMove, 0, 0);
+  mapHost.style.setProperty('--selected-zone-cursor', resizeOnly ? zoneCorners[cornerToResize].style.getPropertyValue('--handle-cursor') : 'grab');
+  zoneSides.forEach((handle, index) => {
+    handle.hidden = !show(handle.dataset.side, layout.sides);
+    const alongX = index % 2 === 0;
+    handle.style.setProperty('--handle-cursor', zoneResizeCursor(alongX ? xAngle : yAngle));
+    handle.style.setProperty('--side-angle', `${alongX ? yAngle : xAngle}rad`);
+    place(handle, layout.edges[index]);
+  });
+  zoneMove.hidden = !show(null, !resizeOnly);
+  place(zoneMove, layout.centre);
 
   if (removeMapZone.hidden) return;
+  const { x: centreX, y: centreY } = layout.centre;
+  const width = mapHost.clientWidth, height = mapHost.clientHeight;
   const inset = removeMapZone.offsetWidth / 2 + 4;
-  const gap = inset + zoneMove.offsetWidth / 2;
-  const candidates = [[extentX + gap, 0], [-extentX - gap, 0], [0, extentY + gap], [0, -extentY - gap]];
-  const point = candidates.find(([dx, dy]) => {
-    const x = centreX + dx;
-    const y = centreY + dy;
-    return x >= inset && x <= width - inset && y >= inset && y <= height - inset;
-  });
+  const fit = (value, size) => Math.max(inset, Math.min(size - inset, value));
+  const dx = Math.max(...corners.map(p => Math.abs(p.x - centreX))) + inset + layout.size / 2;
+  const dy = Math.max(...corners.map(p => Math.abs(p.y - centreY))) + inset + layout.size / 2;
+  const fitX = fit(centreX, width), fitY = fit(centreY, height);
+  const candidates = [[centreX + dx, fitY], [centreX - dx, fitY], [fitX, centreY + dy], [fitX, centreY - dy]];
+  const point = candidates.find(([x, y]) => x >= inset && x <= width - inset && y >= inset && y <= height - inset);
   // A zone filling the map leaves room for the button between the handles.
-  place(removeMapZone, ...(point ?? [(xx - yx) / 2, (xy - yy) / 2]));
+  const [x, y] = point ?? [fit((centreX + right.x) / 2, width), fit((centreY + right.y) / 2, height)];
+  place(removeMapZone, { x, y });
 }
 
 function measureText(value) {
@@ -392,7 +399,10 @@ function updateRoomPins() {
     const showName = !order || (!overlap && box[0] >= 0 && box[2] <= mapHost.clientWidth && path.getBoundingClientRect().width >= width);
     const pin = make('span', showName ? roomName : '', order ? 'selected-room-pin' : 'room-name-pin');
     if (order && !showName) pin.classList.add('number-only');
-    if (order) pin.prepend(make('b', order, 'order-pin'));
+    if (order) {
+      pin.style.setProperty('--room-color', path.style.getPropertyValue('--room-color'));
+      pin.prepend(make('b', order, 'order-pin'));
+    }
     pin.style.left = `${x}px`;
     pin.style.top = `${y}px`;
     occupied.push(box);
@@ -470,7 +480,7 @@ function renderJob() {
   byId('map-hint').hidden = !map;
   label(byId('map-hint'), !map ? '' : drawZone
     ? (zones.length >= maxZones ? `В задании может быть до ${maxZones} зон. Нажмите × рядом с выбранной зоной, чтобы удалить её.`
-      : zones.length ? 'Потяните зону за середину, сторону или угол. Нажмите ×, чтобы удалить выбранную зону. Новую зону можно нарисовать на свободном месте.'
+      : zones.length ? 'Перетащите зону за середину или измените размер за ручку на контуре. Нажмите ×, чтобы удалить зону. Новую можно нарисовать на свободном месте.'
         : 'Проведите от одного угла зоны до другого или укажите координаты.') : target === 'rooms' ? 'Нажимайте комнаты в порядке уборки. Повторное нажатие снимает выбор.'
       : 'Нажмите комнату на карте, чтобы убрать её отдельно.');
   const order = new Map(target === 'rooms' ? [...rooms].map((id, index) => [id, index + 1]) : []);
@@ -556,7 +566,7 @@ function replaceMap(next) {
     const swatch = make('span', '', 'room-swatch');
     swatch.setAttribute('aria-hidden', 'true');
     const color = svg.querySelector(`path[data-room="${CSS.escape(id)}"]`)?.getAttribute('fill');
-    if (color) swatch.style.setProperty('--room-color', color);
+    if (color) button.style.setProperty('--room-color', color);
     button.append(swatch, make('span', name || `Комната ${id}`), make('small'));
     roomList.append(button);
   }
@@ -569,7 +579,8 @@ function replaceMap(next) {
   overlaysGroup.setAttribute('aria-hidden', 'true');
   zoneLayer = document.createElementNS(svgNS, 'g');
   zoneLayer.setAttribute('aria-hidden', 'true');
-  scene.append(overlaysGroup, zoneLayer);
+  scene.insertBefore(overlaysGroup, scene.querySelector(':scope > [data-dock]'));
+  scene.append(zoneLayer);
   mapHost.replaceChildren(svg, roomPins, robotMarker, zonePins, zoneBadge, zoneHandles, removeMapZone);
 }
 
@@ -754,7 +765,7 @@ function orientMap() {
   const visible = underlayReady && underlayToggle.checked;
   orientation.disabled = !visible;
   if (!scene || !map) return;
-  const { angle, center, viewBox } = mapView(map.bounds, visible ? underlayCalibration : null, orientation.value === 'plan');
+  const { angle, center, viewBox } = mapView(map.viewBounds, visible ? underlayCalibration : null, orientation.value === 'plan');
   const transform = `rotate(${angle} ${center.join(' ')})`;
   const box = viewBox.join(' ');
   const changedDuringDrag = drag && (svg.getAttribute('viewBox') !== box || scene.getAttribute('transform') !== transform);
@@ -770,6 +781,8 @@ function orientMap() {
 }
 
 orientation.addEventListener('change', orientMap);
+compactZoneTools.addEventListener('change', updateOverlay);
+coarsePointer.addEventListener('change', updateOverlay);
 new ResizeObserver(() => {
   updateRoomPins();
   updateRobotMarker();
@@ -1016,6 +1029,7 @@ function stopZoneDrag() {
   if (!drag) return;
   const { id } = drag;
   drag = null;
+  mapHost.style.removeProperty('--zone-drag-cursor');
   if (mapHost.hasPointerCapture(id)) mapHost.releasePointerCapture(id);
 }
 
@@ -1024,7 +1038,10 @@ mapHost.addEventListener('pointerdown', event => {
   const point = pointerPoint(event);
   if (!point) return;
   const { corner, side, zoneIndex } = event.target.dataset;
-  const handle = side ?? (corner === undefined ? null : Number(corner));
+  let handle = side ?? (corner === undefined ? null : Number(corner));
+  if (Number(zoneIndex) === selectedZone && !compactZoneTools.hidden && zoneResizeTool.checked) {
+    handle = zoneCorners.findIndex(node => !node.hidden);
+  }
   const editing = zoneIndex !== undefined || handle !== null || event.target === zoneMove;
   const emptySelected = zones[selectedZone]?.every(Number.isNaN);
   const index = editing ? Number(zoneIndex ?? selectedZone) : emptySelected ? selectedZone : zones.length;
@@ -1035,6 +1052,7 @@ mapHost.addEventListener('pointerdown', event => {
   if (editing && selectedZone !== index) selectZone(index);
   event.preventDefault();
   mapHost.focus({ preventScroll: true });
+  mapHost.style.setProperty('--zone-drag-cursor', zone ? (handle === null ? 'grabbing' : getComputedStyle(event.target).cursor) : 'crosshair');
   mapHost.setPointerCapture(event.pointerId);
   drag = { id: event.pointerId, start, index, zone, handle, preview: zone };
   renderJob();

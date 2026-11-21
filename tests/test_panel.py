@@ -160,7 +160,10 @@ class PanelTest(unittest.TestCase):
         labels = [node.text for node in svg.findall(".//{*}text")]
         self.assertIn("Кухня & <холл>", labels)
         self.assertIn("Зарядная станция", labels)
-        self.assertIn("translate(321.60 113.24)", [node.get("transform") for node in svg.findall(".//{*}g")])
+        dock = svg.find(".//{*}g[@data-dock]")
+        x, y = map(float, dock.get("transform").split(")")[0].removeprefix("translate(").split())
+        self.assertAlmostEqual(x, 321.60)
+        self.assertAlmostEqual(y, 113.24)
         paths = {node.attrib["d"] for node in svg.findall(".//{*}path")}
         self.assertIn("M0 0h1v1h-1zM0 1h1v1h-1zM0 2h3v1h-3z", paths)
         self.assertIn("M1 0h1v1h-1zM4 1h1v1h-1z", paths)
@@ -216,7 +219,7 @@ class PanelTest(unittest.TestCase):
         svg = ElementTree.fromstring(plan["svg"])
         self.assertEqual(svg.get("viewBox"), f"{x0} {-y1} {x1-x0} {y1-y0}")
         self.assertEqual(svg.find("{*}g").get("transform"), f"translate({x0} {-y1}) scale(10)")
-        self.assertEqual(svg.find("{*}circle").get("cy"), "-5")
+        self.assertTrue(svg.find("{*}g[@data-dock]").get("transform").startswith("translate(5 -5) "))
         self.assertEqual(plan["units_per_metre"], 1000)
         self.assertAlmostEqual(plan["room_area_m2"]["1"], 0.0005)
         self.assertEqual(sum(end - start for _, start, end in plan["floor"]["runs"]), 90)
@@ -224,3 +227,19 @@ class PanelTest(unittest.TestCase):
         self.assertIs(interactive_map(saved, plan), plan)
         saved.pixel_type[1, 1] = 1
         self.assertNotEqual(interactive_map(saved, plan)["revision"], plan["revision"])
+
+    def test_station_needs_a_position_inside_the_saved_grid(self):
+        saved = sample_map()
+        for position in (None, Point(20, 0), Point(0, 10)):
+            with self.subTest(position=position):
+                saved.charger_position = position
+                plan = interactive_map(saved)
+                self.assertEqual(plan["view_padding"], 0)
+                interactive = ElementTree.fromstring(plan["svg"])
+                snapshot = ElementTree.fromstring(b64decode(render_map_frame(map_snapshot(saved))))
+                self.assertIsNone(interactive.find(".//{*}g[@data-dock]"))
+                self.assertIsNone(snapshot.find(".//{*}g[@data-dock]"))
+        saved.charger_position = Point(-30, -20)
+        plan = interactive_map(saved)
+        self.assertEqual(plan["bounds"], [-30, -20, 20, 10])
+        self.assertGreaterEqual(plan["view_padding"], 50 * .065 / 2)

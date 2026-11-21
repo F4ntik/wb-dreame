@@ -1,11 +1,24 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { adjustUnderlay, cleaningCoverage, dragZone, jobBlock, jobRequest, mapInfo, mapOverlays, mapView, maxZones, pendingRequest, pointOnMap, preferenceInfo,
-  preferenceRequest, rectanglePaths, requestIdentity, underlayInfo, zoneHitsNoGo, zoneInBounds, zoneMeasures, zoneProblem } from '../web/controls.js';
+  preferenceRequest, rectanglePaths, requestIdentity, roomContour, underlayInfo, zoneHitsNoGo, zoneInBounds, zoneMeasures, zoneProblem } from '../web/controls.js';
 
 const map = mapInfo({ id: 7, revision: 'r2', bounds: [-300, -100, 500, 650],
   rooms: { 1: 'Кухня', 3: 'Холл', wrong: 'Не комната' }, svg: '<svg/>' });
 const automatic = { suction: '', water: '', repeats: '1' };
+
+test('dock clearance enlarges only the displayed plan, including a calibrated underlay', () => {
+  const base = { ...map, bounds: [0, 0, 3600, 2400] };
+  const flush = mapInfo({ ...base, view_padding: 102 });
+  assert.deepEqual(flush.bounds, base.bounds);
+  assert.deepEqual(flush.viewBounds, [-102, -102, 3702, 2502]);
+  const underlay = { width: 360, height: 240, matrix: [10, 0, 0, 10, 0, -2400] };
+  for (const backdrop of [null, underlay]) {
+    assert.deepEqual(mapView(flush.viewBounds, backdrop).viewBox, [-102, -2502, 3804, 2604]);
+    assert.deepEqual(mapView(mapInfo(base).viewBounds, backdrop).viewBox, [0, -2400, 3600, 2400]);
+  }
+  assert.equal(pointOnMap(-1, 0, flush.bounds), null);
+});
 
 test('panel uses state availability for commands and preserves preview on a read-only older controller', () => {
   const online = {online: true, allow_commands: true};
@@ -35,6 +48,15 @@ test('room aliases supply labels without changing the ordered request or saved m
   assert.equal(named.rooms[9], undefined);
   const selection = { kind: 'rooms', rooms: new Set([3, 1]) };
   assert.deepEqual(jobRequest('start', named, selection, automatic), jobRequest('start', map, selection, automatic));
+});
+
+test('room contour retains a recess, a hole and a detached patch without row seams', () => {
+  const rows = ['M1 1h3v1h-3z', 'M1 2h1v1h-1zM3 2h1v1h-1z', 'M1 3h3v1h-3z', 'M1 4h1v1h-1zM5 4h2v1h-2z'];
+  const perimeter = ['M1 1H4', 'M2 2H3', 'M2 3H3', 'M2 4H4', 'M5 4H7', 'M1 5H2', 'M5 5H7',
+    'M1 1V5', 'M4 1V4', 'M2 2V3', 'M3 2V3', 'M2 4V5', 'M5 4V5', 'M7 4V5'];
+  assert.deepEqual(roomContour(rows.join('')).match(/M[^M]+/g).sort(), perimeter.sort());
+  const polygon = 'M0 0h3v1h-3zM6 0L5 2H8Z';
+  assert.equal(roomContour(polygon), polygon);
 });
 
 test('SVG coordinates preserve native X, reverse Y and clamp only after drag begins', () => {

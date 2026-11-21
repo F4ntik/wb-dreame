@@ -110,8 +110,9 @@ class HistoryMapTest(unittest.TestCase):
         self.assertFalse(result["has_coverage"])
         svg = ElementTree.fromstring(result["svg"])
         self.assertEqual(svg.get("viewBox"), "-3 -3 8 9")
-        station = svg.find("{*}circle")
-        self.assertEqual((station.get("cx"), station.get("cy")), ("1.400", "2.500"))
+        self.assertEqual((svg.get("width"), svg.get("height")), ("8", "9"))
+        station = svg.find("{*}g[@data-dock]")
+        self.assertTrue(station.get("transform").startswith("translate(1.4 2.5) "))
         self.assertEqual(history_position(archive, -25.0, -15.0), [55.0, 61.11111])
         self.assertIsNone(history_position(archive, -31, -15))
         self.assertIsNone(history_position(archive, float("nan"), -15))
@@ -130,6 +131,33 @@ class HistoryMapTest(unittest.TestCase):
         self.assertEqual(ElementTree.fromstring(other_svg).get("viewBox"), "-3 -3 8 9")
         self.assertNotEqual(paths(result["svg"]), paths(other_svg))
         self.assertIsNone(history_position(other, -25.0, -15.0))
+        other.charger_position = archive.charger_position
+        self.assertIsNone(ElementTree.fromstring(render_history(other)["svg"]).find("{*}g[@data-dock]"))
+
+    def test_edge_dock_fits_and_route_and_photo_use_the_displayed_archive(self):
+        archive = frame(np.ones((360, 240), np.uint8), left=0, top=0)
+        archive.charger_position = Point(15, 2384)
+        archive.path = [Path(15, 2384, "S"), Path(25, 2374, "L")]
+        corners = ((1.5, 1.5), (1.5, 358.5), (358.5, 238.5), (238.5, 1.5))
+        for turn, (x, y) in enumerate(corners):
+            with self.subTest(turn=turn):
+                archive.rotation = 90 * turn
+                result = render_history(archive)
+                svg = ElementTree.fromstring(result["svg"])
+                left, top, width, height = map(int, svg.get("viewBox").split())
+                self.assertEqual((width, height), (int(svg.get("width")), int(svg.get("height"))))
+                dock = svg.find("{*}g[@data-dock]")
+                radius = 12 * float(dock.get("transform").split("scale(")[1].rstrip(")"))
+                self.assertGreaterEqual(min(x - left, y - top, left + width - x, top + height - y), radius)
+                position = [round(100 * (x - left) / width, 5), round(100 * (y - top) / height, 5)]
+                self.assertEqual(result["route_sections"][0]["points"][0], position)
+                self.assertEqual(history_position(archive, 15, 2384), position)
+        archive.rotation = 0
+        for station in (None, Point(1800, 1200)):
+            archive.charger_position = station
+            result = render_history(archive)
+            self.assertEqual(ElementTree.fromstring(result["svg"]).get("viewBox"), "-3 -3 366 246")
+            self.assertEqual(result["route_sections"][0]["points"][0], history_position(archive, 15, 2384))
 
     def test_native_route_modes_and_breaks_do_not_invent_connections(self):
         archive = frame(np.ones((8, 10), np.uint8), left=0, top=0)

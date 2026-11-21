@@ -6,6 +6,7 @@ from itertools import groupby
 import json
 
 import numpy as np
+from map_symbols import DOCK_WIDTH_FRACTION, dock_padding, dock_svg
 from overlays import read_overlays
 
 FRAME_LIMIT = 1_048_576
@@ -99,10 +100,8 @@ def _map_svg(parts):
             svg.append(f'<text x="{x:.2f}" y="{y + 5:.2f}" text-anchor="middle" font-size="14" font-weight="700">{key}</text>')
         legend.append((str(key), segments.get(key, ("", True))[0] or f"Комната {key}", colors[key]))
     if station_xy is not None:
-        x, y = station_xy
-        svg.append(f'<g transform="translate({x:.2f} {y:.2f})"><circle r="10" fill="#183E49" stroke="white" stroke-width="2"/>'
-                   '<path d="M-1 -5L-4 1H0L-1 5L4 -1H0L1 -5Z" fill="white"/></g>')
-        legend.append(("↯", "Зарядная станция", "#B1DEE2"))
+        svg.append(dock_svg(*station_xy, 24))
+        legend.append((None, "Зарядная станция", "#B1DEE2"))
     return "".join(svg), legend
 
 
@@ -130,7 +129,7 @@ def interactive_map(saved, previous=None):
     dim = saved.dimensions
     step = dim.grid_size
     bounds = [dim.left, dim.top, dim.left + dim.width * step, dim.top + dim.height * step]
-    _, _, _, segments, max_segment = snapshot
+    _, _, station_on_grid, segments, max_segment = snapshot
     rooms = {str(k): label or f"Комната {k}" for k, (label, shown) in segments.items() if shown}
     identities = {k: getattr(v, "unique_id", None) for k, v in sorted((saved.segments or {}).copy().items())}
     pixels = saved.pixel_type.T[::-1, :].copy()
@@ -139,7 +138,7 @@ def interactive_map(saved, previous=None):
     station = saved.charger_position
     frame, geometry_key = _coordinate_frame(saved, bounds)
     digest.update(json.dumps([saved.map_id, bounds, step, pixels.shape, rooms, list(identities.items()), saved.rotation,
-                              snapshot[2], exclusions, frame, geometry_key], sort_keys=True).encode())
+                              station_on_grid, exclusions, frame, geometry_key], sort_keys=True).encode())
     revision = digest.hexdigest()
     if previous and previous["revision"] == revision:
         return previous
@@ -153,8 +152,11 @@ def interactive_map(saved, previous=None):
         room = f' data-room="{kind}"' if str(kind) in rooms else ""
         svg.append(f'<path fill="{colors[kind]}"{room} d="{"".join(parts)}"/>')
     svg.append('</g>')
-    if station and left <= station.x <= right and bottom <= station.y <= top:
-        svg.append(f'<circle cx="{station.x}" cy="{-station.y}" r="{step*2}" fill="#164B50"/>')
+    view_padding = 0
+    if station_on_grid is not None:
+        dock_width = max(right - left, top - bottom) * DOCK_WIDTH_FRACTION
+        view_padding = dock_padding(station.x, station.y, bounds, dock_width)
+        svg.append(dock_svg(station.x, -station.y, dock_width))
     svg.append('</svg>')
     footprint_bits = np.packbits(pixels != 0).tobytes()
     footprint = sha256(footprint_bits).hexdigest()
@@ -193,7 +195,8 @@ def interactive_map(saved, previous=None):
         runs.extend([bottom + row*step, left + start*step, left + end*step]
                     for start, end in zip(changes[::2], changes[1::2]))
     room_area = {key: round(np.count_nonzero(walkable & (labels == int(key))) * (step/1000)**2, 4) for key in rooms}
-    return {"id": saved.map_id, "revision": revision, "bounds": bounds, "rooms": rooms, "svg": "".join(svg),
+    return {"id": saved.map_id, "revision": revision, "bounds": bounds, "view_padding": view_padding,
+            "rooms": rooms, "svg": "".join(svg),
             "footprint": footprint, "_footprint_bits": footprint_bits, "geometry_key": geometry_key,
             "units_per_metre": 1000, "floor": {"grid_size": step, "runs": runs},
             "room_area_m2": room_area, "_room_keys": room_keys}
@@ -220,8 +223,9 @@ def render_map_frame(snapshot):
         for index, (key, label, color) in enumerate(legend):
             x = 30 + index % columns * (420 / columns)
             y = 370 + index // columns * 25
-            parts.append(f'<rect x="{x:.1f}" y="{y - 15}" width="22" height="21" rx="5" fill="{color}"/>'
-                         f'<text x="{x + 11:.1f}" y="{y}" font-size="12" font-weight="700" text-anchor="middle">{key}</text>'
+            symbol = (f'<text x="{x + 11:.1f}" y="{y}" font-size="12" font-weight="700" text-anchor="middle">{key}</text>'
+                      if key is not None else dock_svg(x + 11, y - 5, 18))
+            parts.append(f'<rect x="{x:.1f}" y="{y - 15}" width="22" height="21" rx="5" fill="{color}"/>{symbol}'
                          f'<text x="{x + 29:.1f}" y="{y}" font-size="14">{_label(label, (45, 21, 13)[columns - 1])}</text>')
     svg = (f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 {height}"><title>{title}</title>'
            '<g font-family="system-ui,sans-serif" fill="#16333B">' + "".join(parts) + "</g></svg>")

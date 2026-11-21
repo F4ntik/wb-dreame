@@ -104,9 +104,8 @@
 .journal-followup button { font-size: .83rem; color: var(--accent); }
 .journal-followup > .job-result { flex-basis: 100%; }
 .history-body .journal-followup { margin-top: .6rem; }
-.schedule-heading p { margin: .34rem 0 0; }
-.schedule-card > h3 { display: flex; align-items: center; gap: .55rem; font-size: 1.08rem; }
-.schedule-card > h3 > span { display: grid; place-items: center; width: 31px; height: 31px; border-radius: 9px; color: #396957; background: #edf3ed; }
+.schedule-card h3 { display: flex; align-items: center; gap: .55rem; font-size: 1.08rem; }
+.schedule-card h3 > span { display: grid; place-items: center; width: 31px; height: 31px; border-radius: 9px; color: #396957; background: #edf3ed; }
 .schedule-item, #schedules-charging-summary { border-radius: 10px; background: #fff; }
 .schedule-row { gap: .42rem .75rem; }
 .schedule-recurrence { font-size: .86rem; }
@@ -140,13 +139,12 @@
 .shell[data-navigation="left"] .back { margin: auto .55rem 0; }
 .shell[data-navigation="left"] .view-tabs { display: grid; gap: .22rem; }
 .shell[data-navigation="left"] .view-tabs button { justify-content: flex-start; padding: .59rem .62rem; }
-.shell[data-navigation="left"] .workspace { padding-top: 2.05rem; }
 @media (min-width: 781px) {
   #to-job { display: none; }
   .map-footer:not(:has(#latest-cleaning-map:not([hidden]))) { display: none; }
 }
 @media (max-width: 780px) {
-  .workspace { padding: 1.08rem max(.73rem,3vw) 2rem; }
+  .workspace { padding: .65rem max(.73rem,3vw) 2rem; }
   .work-area { gap: .72rem; }
   .scenario-layout, .settings-grid { grid-template-columns: minmax(0,1fr); }
 }
@@ -163,8 +161,6 @@
   .view-tabs { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 2px; }
   .view-tabs button { padding: .35rem .1rem; font-size: .8rem; line-height: 1.2; min-height: 44px; gap: .38rem; }
   .view-tabs .ui-glyph { width: 16px; height: 16px; }
-  .page-title { margin-bottom: .7rem; }
-  .page-title h2 { font-size: 1.8rem; }
   .summary { grid-template-columns: 1.13fr .85fr 1fr; padding: .52rem 0; margin-bottom: .7rem; border-radius: 13px; }
   .summary > div { padding: 0 .55rem; }
   .summary .stat-icon { display: none; }

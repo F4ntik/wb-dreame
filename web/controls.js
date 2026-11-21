@@ -12,6 +12,8 @@ export function mapInfo(map, names = {}) {
       !Array.isArray(map.bounds) || map.bounds.length !== 4 || !map.bounds.every(Number.isSafeInteger)) return null;
   const [left, bottom, right, top] = map.bounds;
   if (left >= right || bottom >= top || typeof map.svg !== 'string') return null;
+  const pad = Number.isSafeInteger(map.view_padding) && map.view_padding > 0 &&
+    map.view_padding <= Math.max(right - left, top - bottom) ? map.view_padding : 0;
   const rooms = Object.fromEntries(Object.entries(map.rooms || {}).filter(([key, value]) =>
     roomId.test(key) && Number(key) >= 1 && String(Number(key)) === key && typeof value === 'string'));
   for (const id of Object.keys(rooms)) {
@@ -24,6 +26,7 @@ export function mapInfo(map, names = {}) {
   const roomAreas = Object.fromEntries(Object.entries(map.room_area_m2 || {}).filter(([key, area]) =>
     Object.hasOwn(rooms, key) && Number.isFinite(area) && area >= 0));
   return { id: map.id, revision: map.revision, bounds: map.bounds, rooms, svg: map.svg, roomAreas,
+    viewBounds: pad ? [left - pad, bottom - pad, right + pad, top + pad] : map.bounds,
     unitsPerMetre: Number.isFinite(units) && units > 0 ? units : null, floor: floorInfo(map.floor, map.bounds) };
 }
 
@@ -50,7 +53,24 @@ function floorInfo(floor, [left, bottom, right, top]) {
   return { gridSize, runs: merged };
 }
 
-// Coordinates are CSS pixels after the SVG transform, including touch targets outside a small zone.
+export function zoneHandleLayout([first, upper, right, last], touch) {
+  const midpoint = (p, q) => ({ x: (p.x + q.x) / 2, y: (p.y + q.y) / 2 });
+  const width = Math.hypot(right.x - first.x, right.y - first.y);
+  const height = Math.hypot(upper.x - first.x, upper.y - first.y);
+  const cornerDistance = Math.hypot(width, height) / 2;
+  const compact = cornerDistance < (touch ? 41 : 17);
+  const fullSize = touch ? 40 : 32;
+  const size = compact ? fullSize : Math.min(fullSize, Math.floor(cornerDistance) - 1);
+  const shortSide = Math.min(width, height);
+  return { size, compact, fourCorners: shortSide >= size + 1, sides: shortSide >= 2 * (size + 1),
+    centre: midpoint(first, last), edges: [midpoint(first, upper), midpoint(first, right), midpoint(right, last), midpoint(upper, last)] };
+}
+
+export function zoneResizeCursor(angle) {
+  return ['ew-resize', 'nwse-resize', 'ns-resize', 'nesw-resize'][(Math.round(angle / (Math.PI / 4)) + 8) % 4];
+}
+
+// Coordinates are CSS pixels after the SVG transform, including the visible handles' hit areas.
 export function zoneMeasurePlacement(frame, zone, handles, labelWidth, labelHeight, otherZones) {
   const gap = 6;
   const limitX = frame.right - gap - labelWidth;
@@ -394,6 +414,38 @@ function safeAttribute(name, value) {
   return Object.hasOwn(enumAttrs, name) && enumAttrs[name].includes(value);
 }
 
+export function roomContour(data) {
+  const rows = new Map(), columns = new Map();
+  // _floor_paths emits unit-high rectangles. Toggling their endpoints cancels shared edges, including partial overlaps.
+  function addEdge(lines, line, start, end) {
+    if (!lines.has(line)) lines.set(line, new Set());
+    const ends = lines.get(line);
+    for (const point of [start, end]) {
+      if (!ends.delete(point)) ends.add(point);
+    }
+  }
+  const run = /M(\d{1,6}) (\d{1,6})h(\d{1,6})v1h-\3z/y;
+  while (run.lastIndex < data.length) {
+    const match = run.exec(data);
+    if (!match) return data; // A map can already supply a polygon.
+    const x = Number(match[1]), y = Number(match[2]), right = x + Number(match[3]);
+    addEdge(rows, y, x, right);
+    addEdge(rows, y + 1, x, right);
+    addEdge(columns, x, y, y + 1);
+    addEdge(columns, right, y, y + 1);
+  }
+  const contour = [];
+  for (const lines of [rows, columns]) {
+    for (const [line, ends] of lines) {
+      const points = [...ends].sort((a, b) => a - b);
+      for (let i = 0; i < points.length; i += 2) {
+        contour.push(lines === rows ? `M${points[i]} ${line}H${points[i + 1]}` : `M${line} ${points[i]}V${points[i + 1]}`);
+      }
+    }
+  }
+  return contour.join('');
+}
+
 export function safeMapSvg(map, document) {
   if (map.svg.length > 2_000_000 || /<!\s*(?:doctype|entity)\b/i.test(map.svg)) return null;
   const xml = new DOMParser().parseFromString(map.svg, 'image/svg+xml');
@@ -420,6 +472,13 @@ export function safeMapSvg(map, document) {
       for (const attr of element.attributes) {
         if (!attr.namespaceURI && safeAttribute(attr.name, attr.value)) clean.setAttribute(attr.name, attr.value);
       }
+      if (element.localName === 'g' && element.getAttribute('data-dock') === 'true') {
+        clean.dataset.dock = 'true';
+        clean.setAttribute('role', 'img');
+        clean.setAttribute('aria-label', 'Зарядная станция');
+        clean.setAttribute('pointer-events', 'none');
+      }
+      to.append(clean);
       const key = element.getAttribute('data-room');
       if (element.localName === 'path' && key && Object.hasOwn(map.rooms, key)) {
         clean.dataset.room = key;
@@ -430,8 +489,18 @@ export function safeMapSvg(map, document) {
           clean.setAttribute('role', 'button');
           clean.setAttribute('aria-label', map.rooms[key]);
         }
+        const contour = document.createElementNS(svgNS, 'path');
+        contour.classList.add('room-contour');
+        contour.setAttribute('aria-hidden', 'true');
+        contour.setAttribute('d', roomContour(clean.getAttribute('d') || ''));
+        if (clean.hasAttribute('transform')) contour.setAttribute('transform', clean.getAttribute('transform'));
+        const color = clean.getAttribute('fill');
+        if (color) {
+          clean.style.setProperty('--room-color', color);
+          contour.style.setProperty('--room-color', color);
+        }
+        to.append(contour);
       }
-      to.append(clean);
       if (element.localName === 'g' && !copy(element, clean, depth + 1)) return false;
     }
     return true;

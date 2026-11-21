@@ -1,9 +1,38 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { zoneMeasurePlacement } from '../web/controls.js';
+import { zoneHandleLayout, zoneMeasurePlacement, zoneResizeCursor } from '../web/controls.js';
 
 const rect = (left, top, right, bottom) => ({ left, top, right, bottom });
 const frame = rect(100, 40, 500, 300);
+
+test('центр и ручки не делят одно место на маленьком или узком прямоугольнике', () => {
+  const handles = (width, height, touch) => {
+    const corners = [{ x: 0, y: height }, { x: 0, y: 0 }, { x: width, y: height }, { x: width, y: 0 }];
+    const { size, compact, fourCorners, sides } = zoneHandleLayout(corners, touch);
+    return { size, compact, fourCorners, sides };
+  };
+  assert.deepEqual(handles(24, 18, true), { size: 40, compact: true, fourCorners: false, sides: false });
+  assert.deepEqual(handles(24, 18, false), { size: 32, compact: true, fourCorners: false, sides: false });
+  assert.deepEqual(handles(32, 24, false), { size: 19, compact: false, fourCorners: true, sides: false });
+  assert.deepEqual(handles(14, 120, true), { size: 40, compact: false, fourCorners: false, sides: false });
+  assert.deepEqual(handles(100, 160, true), { size: 40, compact: false, fourCorners: true, sides: true });
+});
+
+test('центр и середины граней совпадают с контуром у края повёрнутой карты', () => {
+  const corners = [{ x: 0, y: 16 }, { x: 8, y: 0 }, { x: 20, y: 26 }, { x: 28, y: 10 }];
+  for (const touch of [false, true]) {
+    const { centre, edges } = zoneHandleLayout(corners, touch);
+    assert.deepEqual(centre, { x: 14, y: 13 });
+    assert.deepEqual(edges, [{ x: 4, y: 8 }, { x: 10, y: 21 }, { x: 24, y: 18 }, { x: 18, y: 5 }]);
+  }
+});
+
+test('стрелки сторон и углов следуют повороту карты в обе стороны', () => {
+  const cursors = degrees => [0, 90, 45, -45].map(offset => zoneResizeCursor((degrees + offset) * Math.PI / 180));
+  assert.deepEqual(cursors(0), ['ew-resize', 'ns-resize', 'nwse-resize', 'nesw-resize']);
+  assert.deepEqual(cursors(-27), ['nesw-resize', 'nwse-resize', 'ew-resize', 'ns-resize']);
+  assert.deepEqual(cursors(27), ['nwse-resize', 'nesw-resize', 'ns-resize', 'ew-resize']);
+});
 
 test('размеры над нижней зоной и под верхней оставляют место для сенсорных ручек', () => {
   assert.deepEqual(zoneMeasurePlacement(frame, rect(140, 42, 180, 65), [rect(120, 26, 200, 85)], 120, 45, []), [106, 91]);

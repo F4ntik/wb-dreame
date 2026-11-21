@@ -2,7 +2,7 @@
 
 Панель для Dreame L40 Ultra и L40s Pro Ultra в штатном веб-интерфейсе Wiren Board. На карте видно, где пылесос сейчас и где уже помыл пол. Здесь же можно выбрать комнаты в нужном порядке, задать прямоугольную зону, включить CleanGenius или открыть карту прошлой уборки. Home Assistant для работы не нужен. Связь с роботом идёт через облако Dreamehome.
 
-**[Скачать пакет для Wiren Board](https://github.com/F4ntik/wb-dreame/releases/download/v0.1.0/wb-mqtt-dreame_0.1.0_all.deb)** · [Панель в картинках](docs/PANEL.md) · [Что изменилось](CHANGELOG.md) · [Результаты проверок](docs/COMMISSIONING.md)
+**[Скачать пакет для Wiren Board](https://github.com/F4ntik/wb-dreame/releases/download/v0.1.1/wb-mqtt-dreame_0.1.1_all.deb)** · [Панель в картинках](docs/PANEL.md) · [Что изменилось](CHANGELOG.md) · [Результаты проверок](docs/COMMISSIONING.md)
 
 | Совместимость | Что известно |
 |---|---|
@@ -24,8 +24,8 @@ ssh root@WB_ADDRESS "cat /etc/wb-release /etc/os-release; dpkg --print-architect
 Пакет использует системные зависимости из APT. Скопируй его на контроллер и посмотри, какие изменения предложит APT. Если для установки требуется сменить релиз WB или удалить компоненты домашней автоматики, прерви установку.
 
 ```powershell
-scp ".\wb-mqtt-dreame_0.1.0_all.deb" root@WB_ADDRESS:/root/wb-mqtt-dreame_0.1.0_all.deb
-ssh root@WB_ADDRESS "apt-get -s install /root/wb-mqtt-dreame_0.1.0_all.deb"
+scp ".\wb-mqtt-dreame_0.1.1_all.deb" root@WB_ADDRESS:/root/wb-mqtt-dreame_0.1.1_all.deb
+ssh root@WB_ADDRESS "apt-get -s install /root/wb-mqtt-dreame_0.1.1_all.deb"
 ```
 
 После симуляции открой `ssh root@WB_ADDRESS`. Перед **первой** установкой проверь в разделе «Устройства», свободно ли имя `dreame_l40_1`. Если установлена утилита `mosquitto_sub`, сохранённые сообщения для этого имени можно посмотреть на самом контроллере:
@@ -39,7 +39,7 @@ mosquitto_sub -h 127.0.0.1 -t '/devices/dreame_l40_1/#' -W 3 -F '%t'
 Установи пакет, проверь конфигурацию и привяжи аккаунт:
 
 ```sh
-apt install /root/wb-mqtt-dreame_0.1.0_all.deb
+apt install /root/wb-mqtt-dreame_0.1.1_all.deb
 wb-dreame check
 wb-dreame setup
 systemctl status wb-mqtt-dreame --no-pager
@@ -117,6 +117,8 @@ wb-dreame check
 systemctl is-active wb-mqtt-dreame
 ```
 
+Для возврата с 0.1.1 на 0.1.0 установи сохранённый пакет командой `apt install --allow-downgrades /root/wb-mqtt-dreame_0.1.0_all.deb`. Обе версии используют один формат настроек.
+
 Для возврата с версии 0.1.0 на предварительный выпуск скопируй сохранённый прежний пакет на WB. Если выбирал расположение разделов вручную, в конфигураторе WB верни «Разделы панели пылесоса» в «Автоматически» и сохрани. Это уберёт из конфигурации поле, неизвестное старой версии. Останови драйвер и сними его сохранённые сообщения MQTT, пока установлена новая версия. После аварийной остановки в брокере могут оставаться отдельные каналы комнат, которые прежний пакет ещё не распознаёт. Утилита очищает только сообщения с меткой этой установки.
 
 ```sh
@@ -136,7 +138,7 @@ systemctl is-active wb-mqtt-dreame
 |---|---|
 | Первичная установка | Пакет создает настройки по умолчанию, если их еще нет. После запуска в разделе «Устройства» появляется статус привязки |
 | Установка новой версии .deb | Системные файлы обновляются, конфиг и привязка сохраняются. Новую версию устанавливают через `apt install /путь/к/новому.deb` |
-| Установка той же версии | `apt install --reinstall /root/wb-mqtt-dreame_0.1.0_all.deb` |
+| Установка той же версии | `apt install --reinstall /root/wb-mqtt-dreame_0.1.1_all.deb` |
 | Снятие расширения | `apt remove wb-mqtt-dreame` сохраняет настройки и привязку для повторной установки |
 | Полное удаление собственных настроек | `apt purge wb-mqtt-dreame` стирает конфиг, пароль, сохранённую сессию и идентификатор установки MQTT. Внешние резервные копии сохраняются |
 | Обычное совместимое обновление WB через APT | Пакет остается установленным. При смене Debian снова проверь совместимость зависимостей |

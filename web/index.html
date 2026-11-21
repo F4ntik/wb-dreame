@@ -34,7 +34,7 @@
         <button id="retry-connection" type="button">Проверить связь</button>
       </div>
     <div id="view-map" role="tabpanel" aria-labelledby="tab-map">
-      <header class="page-title"><h2 id="map-title">Карта уборки</h2><span id="map-id" class="map-id muted"></span></header>
+      <h2 id="map-title" class="sr-only">Карта уборки</h2>
     <section class="summary" aria-label="Состояние пылесоса">
       <div><span class="stat-icon" data-icon="robot" aria-hidden="true"></span><div><span>Состояние</span><strong id="robot-state">—</strong></div></div>
       <div><span class="stat-icon" data-icon="charge" aria-hidden="true"></span><div><span>Заряд</span><div class="battery-reading"><strong id="battery">—</strong><span class="battery-gauge" aria-hidden="true"><span id="battery-fill"></span></span></div></div></div>
@@ -61,7 +61,7 @@
               <label><input type="radio" name="target" form="job-form" value="zone"><span>Зоны</span></label>
             </div>
           </fieldset>
-          <strong id="map-editor-mode" class="map-editor-mode" hidden><span data-icon="edit" aria-hidden="true"></span>Зоны сценария</strong>
+          <strong id="map-editor-mode" class="map-editor-mode" hidden><span data-icon="edit" aria-hidden="true"></span>Песок у входа</strong>
           <button id="map-layers" class="tool-button" aria-expanded="false" aria-controls="map-layers-panel" type="button" hidden><span data-icon="layers" aria-hidden="true"></span>Слои</button>
         </div>
         <div id="map-layers-panel" class="map-layers-panel" hidden>
@@ -104,9 +104,19 @@
         <div id="zone-measure-shelf"></div>
         <div id="zone-tools" class="zone-tools" hidden>
           <ol id="zone-list" class="zone-list" aria-label="Зоны на карте"></ol>
+          <fieldset id="compact-zone-tools" class="target-selector" hidden>
+            <legend class="sr-only">Инструмент для маленькой зоны</legend>
+            <div class="segmented">
+              <label><input id="zone-move-tool" type="radio" name="zone-tool" checked><span>Переместить</span></label>
+              <label><input id="zone-resize-tool" type="radio" name="zone-tool"><span>Изменить размер</span></label>
+            </div>
+          </fieldset>
           <button id="undo-zone-removal" type="button" hidden>Вернуть зону</button>
         </div>
-        <p id="map-hint" class="map-hint muted">Загрузка карты…</p>
+        <div class="map-caption">
+          <p id="map-hint" class="map-hint muted">Загрузка карты…</p>
+          <span id="map-id" class="map-id muted"></span>
+        </div>
         <div class="live-map-status">
           <p id="live-position" role="status" hidden></p>
           <time id="live-frame-time" class="muted" hidden></time>
@@ -170,7 +180,7 @@
     </div>
 
     <div id="view-scenarios" role="tabpanel" aria-labelledby="tab-scenarios" hidden>
-      <header class="page-title"><h2>Сценарии</h2><button type="button" class="tool-button" id="scene-refresh"><span data-icon="refresh" aria-hidden="true"></span>Обновить</button></header>
+      <h2 class="sr-only">Сценарии</h2>
       <div id="scenario-panel" class="scenario-layout">
         <section class="card saved-scene" aria-labelledby="entrance-title">
           <span class="feature-icon" data-icon="entrance" aria-hidden="true"></span>
@@ -188,7 +198,10 @@
           </div>
         </section>
         <section class="card cloud-scenes" aria-labelledby="dreame-scenes-title">
-          <h3 id="dreame-scenes-title">Из Dreamehome</h3>
+          <div class="section-heading">
+            <h3 id="dreame-scenes-title">Из Dreamehome</h3>
+            <button type="button" class="tool-button" id="scene-refresh"><span data-icon="refresh" aria-hidden="true"></span>Обновить</button>
+          </div>
           <p id="scene-start-hint" class="muted field-hint" role="status">Этапы и комнаты можно изменить в приложении Dreamehome.</p>
           <div id="scene-items" class="scene-items"></div>
         </section>
@@ -196,7 +209,7 @@
       <p id="scene-message" class="job-result" role="status" hidden></p>
     </div>
     <div id="view-history" role="tabpanel" aria-labelledby="tab-history" hidden>
-      <header class="page-title"><h2>История уборок</h2></header>
+      <h2 class="sr-only">История уборок</h2>
       <section id="history-section" class="card journal" aria-label="Список уборок">
         <div class="journal-followup">
           <div><h3>Последняя уборка</h3><p id="reclean-hint" class="muted">Ждём отчёта пылесоса.</p></div>
@@ -220,7 +233,7 @@
 
     <div id="view-resources" role="tabpanel" aria-labelledby="tab-resources" hidden>
       <section class="service-panel" id="metrics">
-        <header class="page-title"><h2>Ресурсы</h2></header>
+        <h2 class="sr-only">Ресурсы</h2>
         <p id="resource-empty" class="muted" role="status">Ожидаем показания робота.</p>
         <div class="service-layout">
           <section class="service-card service-maintenance" aria-labelledby="service-title" hidden>
@@ -263,17 +276,15 @@
 
     <div id="view-schedules" role="tabpanel" aria-labelledby="tab-schedules" hidden>
       <div id="schedules">
-        <div class="page-title schedule-heading">
-          <div>
-            <h2>Расписание</h2>
-            <p class="muted">Время указано по часам пылесоса</p>
-          </div>
-          <button id="schedules-refresh" class="tool-button" type="button"><span data-icon="refresh" aria-hidden="true"></span>Обновить</button>
-        </div>
+        <h2 class="sr-only">Расписание</h2>
         <p id="schedules-result" class="job-result" role="status" hidden></p>
         <div class="schedule-grid">
-          <section id="schedules-cleaning" class="card schedule-card" aria-labelledby="schedules-cleaning-heading" hidden>
-            <h3 id="schedules-cleaning-heading"><span data-icon="schedules" aria-hidden="true"></span>Уборки</h3>
+          <section id="schedules-cleaning" class="card schedule-card" aria-labelledby="schedules-cleaning-heading">
+            <div class="section-heading">
+              <h3 id="schedules-cleaning-heading"><span data-icon="schedules" aria-hidden="true"></span>Уборки</h3>
+              <button id="schedules-refresh" class="tool-button" type="button" aria-label="Обновить расписания уборок и зарядки"><span data-icon="refresh" aria-hidden="true"></span>Обновить</button>
+            </div>
+            <p class="muted field-hint">Время по часам пылесоса</p>
             <p id="schedules-cleaning-note" class="muted field-hint"></p>
             <div id="schedules-cleaning-list"></div>
             <form id="schedules-cleaning-form" class="schedule-editor" aria-labelledby="schedules-cleaning-title" hidden>
@@ -337,7 +348,7 @@
     </div>
 
     <div id="view-settings" role="tabpanel" aria-labelledby="tab-settings" hidden>
-      <header class="page-title"><h2>Настройки</h2></header>
+      <h2 class="sr-only">Настройки</h2>
       <div class="settings-grid">
       <section class="card settings-card" aria-label="Настройки робота">
         <h3>Параметры робота</h3>
