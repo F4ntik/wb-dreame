@@ -103,6 +103,7 @@ let scenarioPanel;
 let pollTimer;
 let polling = false;
 let map = null;
+let draftMap = null;
 let svg = null;
 let scene = null;
 let zoneLayer = null;
@@ -219,6 +220,7 @@ function prepared(action = 'start') {
 
 function targetText() {
   if (target === 'all') return 'Вся доступная площадь';
+  if (!map) return 'Ждём актуальную карту робота.';
   if (target === 'rooms') return rooms.size ? [...rooms].map((id, index) => `${index + 1}. ${map.rooms[id]}`).join(' · ')
     : 'Выберите комнаты на карте или в списке.';
   if (cleanGenius > 0) return 'Выделение можно сохранить. Для запуска уборки зон выключите CleanGenius.';
@@ -510,19 +512,24 @@ function replaceMap(next) {
     return;
   }
   if (!next && !map) return;
-  if (notice.dataset.draft) notice.hidden = true;
-  scenarioPanel?.mapChanged();
   svg = next && safeMapSvg(next, document);
   map = svg ? next : null;
-  rooms.clear();
-  clearAlignmentZone('Карта обновилась. Выберите зону заново.');
+  stopZoneDrag();
+  if (confirmingZone && modal.open) modal.close('cancel');
+  if (map && (map.id !== draftMap?.id || map.revision !== draftMap?.revision)) {
+    draftMap = {id: map.id, revision: map.revision};
+    if (notice.dataset.draft) notice.hidden = true;
+    scenarioPanel?.mapChanged();
+    rooms.clear();
+    clearAlignmentZone('Карта обновилась. Выберите зону заново.');
+    underlayKey = '';
+  }
   roomList.replaceChildren();
   scene = null;
   zoneLayer = null;
   overlaysGroup = null;
   overlaysKey = '';
   features = [];
-  underlayKey = '';
   underlayImage = null;
   underlayReady = false;
   underlayCalibration = null;
@@ -771,7 +778,8 @@ function renderUnderlay(metadata) {
   note.hidden = !calibrated || typeof metadata?.note !== 'string' || !metadata.note;
   if (!note.hidden) label(note, metadata.note);
   const key = calibrated ? JSON.stringify(calibrated) : '';
-  if (key === underlayKey && calibrated) return;
+  if (!map) { showUnderlay(); return; }
+  if (key === underlayKey && calibrated && underlayImage) return;
   if (key !== underlayKey) {
     clearAlignmentZone('Подложка изменилась. Выберите зону заново.');
     if (alignmentHasChanges()) alignmentFeedback('Подложка обновилась. Подгонку можно начать заново.', true);
