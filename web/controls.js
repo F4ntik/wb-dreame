@@ -307,10 +307,17 @@ export function rectanglePaths(rects) {
   return rects.map(([x, y, width, height]) => `M${x} ${y}h${width}v${height}h${-width}z`).join('');
 }
 
-export function motionActions(state, cleaning, dockStatus) {
-  const paused = state === 'PAUSED';
-  return { pause: cleaning, resume: paused, stop: cleaning || paused || state === 'RETURNING',
-    dock: cleaning || paused || (state === 'IDLE' && dockStatus !== 'docked') };
+export function jobBlock(telemetry, action, preview = false) {
+  if (telemetry.online !== true) return 'Робот должен быть на связи.';
+  if (!preview && telemetry.allow_commands !== true) return 'Управление выключено в настройках драйвера.';
+  const availability = telemetry.job_availability;
+  if (action === 'start') {
+    if (availability?.start === true || (preview && typeof availability?.start !== 'boolean')) return '';
+    return typeof availability?.start_reason === 'string' && availability.start_reason
+      ? availability.start_reason : 'Ждём подтверждения готовности робота к запуску.';
+  }
+  if (availability?.[action] === true && (action !== 'dock' || telemetry.dock_status !== 'docked')) return '';
+  return 'Действие недоступно в текущем состоянии робота.';
 }
 
 export function jobRequest(action, map, selection, settings, cleanGenius = null) {

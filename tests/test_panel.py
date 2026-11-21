@@ -24,6 +24,34 @@ def sample_map(map_id=42):
 
 
 class PanelTest(unittest.TestCase):
+    def test_web_command_availability_follows_task_and_faults_independently_of_live_tracking(self):
+        bridge = Bridge()
+        base = {"battery": 80, "fw": "test", "map_id": None, "rooms": {}, "task": "COMPLETED", "error": 0}
+        commands = ("start", "pause", "resume", "stop", "dock")
+        for state, fields, allowed in (
+            ("IDLE", {}, ("start", "dock")),
+            ("DRYING", {"docked_drying": True}, ("start",)),
+            ("DRYING", {"docked_drying": False}, ()),
+            ("CHARGING", {"error": None}, ()),
+            ("ERROR", {"error": 43}, ()),
+            ("WASHING", {"task": "SEGMENT_CLEANING"}, ()),
+            ("HEADING_TO_EXTRA_CLEANING", {"task": "SEGMENT_CLEANING"}, ()),
+            ("SWEEPING", {"task": "SEGMENT_CLEANING"}, ("pause", "stop", "dock")),
+            ("PAUSED", {"task": "SEGMENT_CLEANING_PAUSED"}, ("resume", "stop", "dock")),
+            ("PAUSED", {"task": "SEGMENT_CLEANING_PAUSED", "error": 43}, ("stop", "dock")),
+            ("RETURNING", {}, ("stop",)),
+        ):
+            with self.subTest(state=state, fields=fields):
+                bridge.snapshot({**base, **fields, "state": state})
+                view = bridge.web_state()
+                availability = view["job_availability"]
+                self.assertEqual(tuple(key for key in commands if availability[key]), allowed)
+                self.assertEqual(bool(availability["start_reason"]), "start" not in allowed)
+                if state == "HEADING_TO_EXTRA_CLEANING":
+                    self.assertTrue(view["tracking_active"])
+        bridge.offline("Нет ответа Dreamehome")
+        self.assertIsNone(bridge.web_state()["job_availability"])
+
     @patch("bridge.time", return_value=1_800_000_000)
     @patch("overlays.time", return_value=1_800_000_000)
     def test_live_room_outcomes_require_fresh_matching_frame_during_one_task(self, now, _):

@@ -1,4 +1,4 @@
-import { adjustUnderlay, cleaningCoverage, dragZone, jobRequest, mapInfo, mapOverlays, mapView, maxZones, motionActions, pendingRequest, pointOnMap, preferenceInfo,
+import { adjustUnderlay, cleaningCoverage, dragZone, jobBlock, jobRequest, mapInfo, mapOverlays, mapView, maxZones, pendingRequest, pointOnMap, preferenceInfo,
   preferenceRequest, rectanglePaths, requestIdentity, roomStatusLabels, safeMapSvg, svgNS, underlayInfo, underlayUrl, zoneHitsNoGo, zoneInBounds,
   zoneListInBounds, zoneMeasures, zoneProblem } from './controls.js';
 import { scenarios } from './scenarios.js';
@@ -125,6 +125,7 @@ let removedZone = null;
 let drag = null;
 let zoneEpoch = 0;
 let confirmingZone = false;
+let checkJobConfirmation = null;
 let busy = false;
 let retry = readRetry();
 let lastDetails = '';
@@ -431,6 +432,7 @@ function renderZoneFields(drawZone) {
 }
 
 function renderJob() {
+  if (modal.open) checkJobConfirmation?.();
   scenarioPanel?.render();
   const editing = scenarioPanel?.editing() || false;
   byId('job-title').closest('.job-card').classList.toggle('editing-entrance', editing);
@@ -478,18 +480,18 @@ function renderJob() {
   }
   updateRoomPins();
   updateOverlay();
-  const actions = availableMotion();
-  const occupied = actions.stop;
-  submit.disabled = occupied || busy || Boolean(drag) || preferenceBusy === 'cleangenius' || awaitingMode !== null || telemetry.online !== true || !prepared();
-  label(submit, telemetry.allow_commands === true ? 'Начать уборку' : 'Проверить задание');
+  const writable = telemetry.allow_commands === true;
+  const startReason = jobBlock(telemetry, 'start', !writable);
+  const actions = Object.keys(motionLabels).filter(action => !jobBlock(telemetry, action));
+  submit.disabled = Boolean(startReason) || busy || Boolean(drag) || preferenceBusy === 'cleangenius' || awaitingMode !== null || !prepared();
+  label(submit, writable ? 'Начать уборку' : 'Проверить задание');
   label(byId('submit-hint'), preferenceBusy === 'cleangenius' || awaitingMode !== null ? 'Ждём обновления режима CleanGenius.' :
-    telemetry.online !== true ? 'Робот должен быть на связи.' : !map
-    ? 'Для задания нужна сохранённая карта.' : occupied ? 'Новое задание можно запустить после завершения текущего.' : telemetry.allow_commands === true
-      ? 'Перед запуском появится подтверждение.' : 'Проверка не запускает пылесос.');
-  byId('motion-panel').hidden = editing || telemetry.online !== true || telemetry.allow_commands !== true || !Object.values(actions).some(Boolean);
-  label(byId('motion-title'), occupied ? 'Текущая уборка' : 'Управление роботом');
+    telemetry.online === true && !map ? 'Для задания нужна сохранённая карта.' :
+      startReason || (writable ? 'Перед запуском появится подтверждение.' : 'Проверка не запускает пылесос.'));
+  byId('motion-panel').hidden = editing || !actions.length;
+  label(byId('motion-title'), actions.includes('stop') ? 'Текущая уборка' : 'Управление роботом');
   for (const button of motion.querySelectorAll('button')) {
-    button.hidden = !actions[button.dataset.action];
+    button.hidden = !actions.includes(button.dataset.action);
     button.disabled = busy || preferenceBusy === 'cleangenius';
   }
   forgetRequest.hidden = !retry;
@@ -623,10 +625,6 @@ function updateRobotMarker() {
 
 function trackingActive() {
   return telemetry.online === true && (telemetry.tracking_active ?? cleaningStates.has(telemetry.state)) === true;
-}
-
-function availableMotion() {
-  return motionActions(telemetry.state, trackingActive(), telemetry.dock_status);
 }
 
 function roomAtPosition(point) {
@@ -1352,6 +1350,22 @@ function latestReport() {
   return historyRows(telemetry.details?.history)[0];
 }
 
+async function confirmJob(title, message, accept, blocked, feedback, destructive = false) {
+  if (modal.open) return false;
+  checkJobConfirmation = () => {
+    const reason = blocked();
+    if (!reason) return true;
+    if (modal.open) modal.close('cancel');
+    feedback(reason, true);
+    return false;
+  };
+  try {
+    return await confirmMessage(title, message, accept, destructive) && checkJobConfirmation();
+  } finally {
+    checkJobConfirmation = null;
+  }
+}
+
 function renderReclean() {
   const report = latestReport();
   let reason = '';
@@ -1360,6 +1374,7 @@ function renderReclean() {
   else if (telemetry.reclean_attempt) reason = 'По последнему отчёту доуборку уже запросили. Проверьте состояние робота.';
   else if (!report) reason = 'Ждём последнего отчёта Dreamehome.';
   else if (!report.mapAvailable) reason = 'У последнего отчёта нет архивной карты.';
+  else reason = jobBlock(telemetry, 'start', telemetry.allow_commands !== true);
   reclean.disabled = Boolean(reason) || busy || preferenceBusy === 'cleangenius';
   const hint = reason || `Проверить пропуски по отчёту от ${reportTime.format(report.timestamp * 1000)}.`;
   if (recleanResult.dataset.report !== String(report?.timestamp)) {
@@ -1417,13 +1432,18 @@ reclean.addEventListener('click', async () => {
     const description = [...targets, ...notes.filter(Boolean)].join('. ') + '.';
     const enabled = telemetry.allow_commands === true;
     showRecleanResult(enabled ? description : `${description} Запуск выключен в настройках драйвера.`);
-    if (!enabled || !(await confirmMessage('Доубрать по последнему отчёту?',
-      `${reportTime.format(report.timestamp * 1000)}. ${description}`, 'Доубрать'))) return;
-    if (telemetry.online !== true || telemetry.allow_commands !== true || latestReport()?.timestamp !== request.timestamp ||
-        map?.id !== request.map_id || map.revision !== request.revision) {
-      showRecleanResult('Отчёт, карта или доступ к управлению изменились. Проверьте задание заново.', true);
+    if (!enabled) return;
+    const blocked = () => jobBlock(telemetry, 'start') ||
+      (latestReport()?.timestamp !== request.timestamp || telemetry.reclean_attempt ||
+        map?.id !== request.map_id || map?.revision !== request.revision
+        ? 'Отчёт или карта изменились. Проверьте задание заново.' : '');
+    const reason = blocked();
+    if (reason) {
+      showRecleanResult(reason, true);
       return;
     }
+    if (!(await confirmJob('Доубрать по последнему отчёту?',
+      `${reportTime.format(report.timestamp * 1000)}. ${description}`, 'Доубрать', blocked, showRecleanResult))) return;
     sending = true;
     const result = await postReclean('./api/job', request);
     showRecleanResult(result.message || 'Ответ на команду не подтверждён.', !result.ok || result.status !== 'acknowledged');
@@ -1442,9 +1462,10 @@ async function send(action, scenario = null) {
   const job = scenario?.job ?? prepared(action);
   const preview = action === 'start' && telemetry.allow_commands !== true;
   if (busy || preferenceBusy === 'cleangenius' || (action === 'start' && awaitingMode !== null) ||
-      telemetry.online !== true || !job || (job.kind === 'zone' && drag) || (!preview && telemetry.allow_commands !== true)) return;
-  if (action === 'start' && availableMotion().stop) {
-    feedback('Новую уборку можно запустить после завершения текущей.', true);
+      !job || (job.kind === 'zone' && drag)) return;
+  const reason = jobBlock(telemetry, action, preview);
+  if (reason) {
+    feedback(reason, true);
     return;
   }
   const endpoint = preview ? './api/preview' : './api/job';
@@ -1463,17 +1484,14 @@ async function send(action, scenario = null) {
       const message = scenario?.confirmation ?? (action === 'start' ? [targetText() + '.' + modeText, ...areaText,
         ...(['zone', 'rooms'].includes(job.kind) && cleanGenius === 0 ? [tuningSummary(job)] : [])].join('\n')
         : 'Команда будет отправлена пылесосу.');
-      const confirmed = await confirmMessage(action === 'start' ? 'Начать уборку?' : motionLabels[action], message, verb, action === 'stop');
+      const blocked = () => jobBlock(telemetry, action) ||
+        ((action === 'start' && (map?.id !== job.map_id || map?.revision !== job.revision || cleanGenius !== preparedMode)) ||
+         (job.kind === 'zone' && preparedZoneEpoch !== zoneEpoch)
+          ? 'Режим или карта изменились. Проверьте задание ещё раз.' : '');
+      const confirmed = await confirmJob(action === 'start' ? 'Начать уборку?' : motionLabels[action],
+        message, verb, blocked, feedback, action === 'stop');
       confirmingZone = false;
       if (!confirmed) return;
-    }
-    const motionNow = availableMotion();
-    if (telemetry.online !== true || (!preview && telemetry.allow_commands !== true) ||
-        (action === 'start' ? motionNow.stop : !motionNow[action]) ||
-        (action === 'start' && (map?.id !== job.map_id || map?.revision !== job.revision || cleanGenius !== preparedMode)) ||
-        (job.kind === 'zone' && preparedZoneEpoch !== zoneEpoch)) {
-      feedback('Состояние робота, режим или карта изменились. Проверьте задание ещё раз.', true);
-      return;
     }
     const identity = requestIdentity(key, preview ? null : retry, newRequestId);
     if (!preview) rememberRetry(identity);
@@ -1553,6 +1571,9 @@ scenarioPanel = scenarios({
     }
     return true;
   },
-  writable: () => telemetry.allow_commands === true, confirm: confirmMessage, send: scene => send('start', scene),
+  writable: () => telemetry.allow_commands === true,
+  startBlock: () => awaitingMode !== null ? 'Ждём обновления режима CleanGenius.'
+    : jobBlock(telemetry, 'start', telemetry.allow_commands !== true),
+  confirm: confirmMessage, send: scene => send('start', scene),
 });
 void poll();

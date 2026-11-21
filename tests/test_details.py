@@ -165,9 +165,31 @@ class DetailsTest(unittest.TestCase):
         self.assertEqual({int(item["did"]) for item in args[0]}, {prop.value for prop in (*observed, *properties)})
         self.assertLessEqual(len(FRESH_BASE_PROPERTIES) + 4, 15)
 
-        device.capability = SimpleNamespace(cleangenius=True, auto_switch_settings=True)
+        device.capability = SimpleNamespace(cleangenius=True, auto_switch_settings=True, self_wash_base=True)
         device._protocol.get_properties.return_value.append(
             {**MAPPING[P.AUTO_SWITCH_SETTINGS], "code": 0, "value": '[{"k":"SmartHost","v":1}]'})
         smart = robot.observe()
         self.assertEqual(smart["cleangenius"], 1)
         self.assertIn({"label": "CleanGenius", "value": "Обычная уборка"}, smart["details"]["settings"])
+
+        device.data = {prop.value: 0 for prop in FRESH_BASE_PROPERTIES}
+        observed.update({P.STATE: 8, P.ERROR: 68, P.SELF_WASH_BASE_STATUS: 2, P.CHARGING_STATUS: 3})
+        query = device._protocol.get_properties
+        query.side_effect = lambda items, **_: [
+            {**item, "code": 0, "value": observed.get(P(int(item["did"])))} for item in items
+        ]
+        for faults, expected in (("68", 0), ("68,43", 43), (None, None)):
+            observed[P.FAULTS] = faults
+            with self.subTest(faults=faults):
+                query.reset_mock()
+                result = robot.observe()
+                self.assertTrue(result["docked_drying"])
+                self.assertEqual(result["dock_status"], "docked")
+                self.assertEqual(result["error"], expected)
+                self.assertNotIn("command_time", result)
+                first, second = [call.args[0] for call in query.call_args_list]
+                self.assertEqual(len(first), 10)
+                self.assertLessEqual(len(second), 15)
+                self.assertEqual({P(int(item["did"])) for item in first + second},
+                                 set(FRESH_BASE_PROPERTIES) | {P.AUTO_SWITCH_SETTINGS, *observed})
+                self.assertTrue({P.AUTO_SWITCH_SETTINGS, *observed} <= {P(int(item["did"])) for item in first})

@@ -11,7 +11,7 @@ from config import CONFIG, DATA, MODELS, STATE, Refused, read, validate
 from entrance import Entrance
 from history_map import history_position, render_history
 from history_media import obstacle_photo, obstacles
-from jobs import ACTIVE, PAUSED, Jobs, _normalize
+from jobs import ACTIVE, PAUSED, Jobs, _normalize, job_availability
 from mqtt_namespace import CHANNELS, OWNER_FILE, ROOM_CHANNELS, STATE_LABELS, SUFFIXES, RetainedSession, encode, lock_namespace, read_owner, room_meta
 from overlays import live_room_outcomes, read_overlays
 from preferences import apply_preference
@@ -45,7 +45,8 @@ class Bridge:
         self.underlay = Underlay(DATA)
         self.room_names = RoomNames()
         self.entrance = Entrance(STATE / "entrance.json")
-        self.latest = {"online": False, "state": "Ожидание данных", "map": None, "battery": None, "details": {}}
+        self.latest = {"online": False, "state": "Ожидание данных", "map": None, "battery": None, "details": {},
+                       "job_availability": None}
 
     def pub(self, suffix, value):
         if self.mqtt and self.mqtt.ready:
@@ -65,7 +66,8 @@ class Bridge:
     def offline(self, status):
         self.room_names.publish(None)
         self.latest = {**self.latest, "online": False, "state": status, "map": None, "_live_plan": None,
-                       "tracking_active": False, "overlays": [], "camera": {}, "cleangenius": None}
+                       "tracking_active": False, "overlays": [], "camera": {}, "cleangenius": None,
+                       "job_availability": None}
         for name in CHANNELS:
             if name not in ("state_connection", "map_frame"):
                 self.pub("/controls/" + name + "/meta/error", "r")
@@ -83,6 +85,7 @@ class Bridge:
             if room_status_since is None:
                 room_status_since = int(time() * 1000)
         self.latest = {"online": True, "state": data["state"], "battery": data["battery"], "dock_status": data.get("dock_status"),
+                       "job_availability": job_availability(data),
                        "map": interactive_map(data.get("saved_map"), self.latest.get("map")),
                        "tracking_active": tracking, "_live_plan": data.get("saved_map"), "_station_pause": station_pause,
                        "_room_status_since": room_status_since,

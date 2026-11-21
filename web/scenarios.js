@@ -16,6 +16,7 @@ export function scenarios(ui) {
   const host = byId('view-scenarios'), list = byId('scene-items'), feedback = byId('scene-message');
   const apply = byId('entrance-apply'), edit = byId('entrance-edit'), save = byId('entrance-save'), note = byId('entrance-note');
   const refresh = byId('scene-refresh');
+  const startHint = byId('scene-start-hint'), defaultStartHint = startHint.textContent;
   let entrance, editor, loadedFor, pending = false;
   const status = byId('entrance-editor-status');
   const values = byId('entrance-values');
@@ -39,8 +40,16 @@ export function scenarios(ui) {
     byId('entrance-cancel').disabled = pending;
     if (host.hidden) return;
     refresh.disabled = !online || ui.busy() || pending;
+    const startBlock = ui.startBlock();
+    const startText = startBlock || defaultStartHint;
+    if (startHint.textContent !== startText) startHint.textContent = startText;
     for (const button of list.querySelectorAll('button')) {
-      button.disabled = disabled || button.dataset.map !== String(map?.id);
+      const sameMap = button.dataset.map === String(map?.id);
+      button.disabled = disabled || Boolean(startBlock) || !sameMap;
+      const hint = button.querySelector('small');
+      hint.textContent = sameMap ? (!startBlock && !ui.writable() ? 'Доступна проверка' : '')
+        : Number(button.dataset.map) ? 'Карта № ' + button.dataset.map : 'Карта неизвестна';
+      hint.hidden = !hint.textContent;
     }
     edit.textContent = editor ? 'Вернуться к настройке' : entrance?.status === 'ready' ? 'Изменить' : 'Настроить';
     edit.classList.toggle('primary', !entrance || entrance.status !== 'ready');
@@ -84,9 +93,7 @@ export function scenarios(ui) {
         const title = document.createElement('span');
         title.textContent = scene.name;
         const hint = document.createElement('small');
-        hint.textContent = scene.map_id !== ui.map()?.id ? (scene.map_id ? 'Карта № ' + scene.map_id : 'Карта неизвестна')
-          : ui.writable() ? '' : 'Доступна проверка';
-        if (hint.textContent) title.append(hint);
+        title.append(hint);
         button.append(glyph('scenarios'), title, glyph('forward'));
         button.addEventListener('click', () => run(async () => {
           const detail = await fetchScenario('shortcuts/' + scene.id);

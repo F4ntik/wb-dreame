@@ -221,13 +221,16 @@ class Robot:
         self.identity()
         d = self.device
         cap = getattr(d, "capability", None)
+        self_wash_base = getattr(cap, "self_wash_base", False)
+        station_props = (P.CHARGING_STATUS, P.SELF_WASH_BASE_STATUS, P.FAULTS) if self_wash_base else ()
         props = [P.STATE, P.TASK_STATUS, P.BATTERY_LEVEL, P.ERROR]
         reported = getattr(d, "data", {})
         fresh = [p for p in FRESH_BASE_PROPERTIES if p in d.property_mapping and reported.get(p.value) is not None]
         if not for_command:
-            props.extend(fresh)
+            props.extend(p for p in station_props if p in d.property_mapping)
             if getattr(cap, "cleangenius", False) and getattr(cap, "auto_switch_settings", False):
                 props.append(P.AUTO_SWITCH_SETTINGS)
+            props.extend(p for p in fresh if p not in props)
         mode_props = []
         if for_command:
             mode_props = [P.CLEANING_MODE, P.WATER_TANK]
@@ -237,18 +240,21 @@ class Robot:
                 mode_props.extend((P.MOP_PAD_INSTALLED, P.AUTO_MOUNT_MOP))
             props.extend(mode_props + [P.SUCTION_LEVEL, P.WATER_VOLUME, P.CUSTOMIZED_CLEANING,
                                        P.AUTO_SWITCH_SETTINGS, P.MAP_LIST])
-            if cap.self_wash_base:
-                props.extend([P.CHARGING_STATUS, P.SELF_WASH_BASE_STATUS, P.FAULTS])
+            props.extend(station_props)
             if cap.wetness:
                 props.append(P.ONBOARD_WETNESS_LEVEL if cap.onboard_wetness_level else P.WETNESS_LEVEL)
         query = [{"did": str(p.value), **d.property_mapping[p]} for p in props]
         observed_at = monotonic()
-        result = d._protocol.get_properties(query, retry_count=0, timeout=6)
+        # Keep the readings for command availability together in the first poll batch.
+        limit = len(query) if for_command else (10 if P.AUTO_SWITCH_SETTINGS in props else 15)
+        result = d._protocol.get_properties(query[:limit], retry_count=0, timeout=6)
+        if result and len(query) > limit:
+            result = [*result, *(d._protocol.get_properties(query[limit:], retry_count=0, timeout=6) or [])]
         by_key = {(r.get("siid"), r.get("piid")): r["value"] for r in result or []
                   if isinstance(r, dict) and r.get("code") == 0 and type(r.get("value")) in (int, str)}
         def val(p, value_type=int):
-            k = d.property_mapping[p]
-            value = by_key.get((k["siid"], k["piid"]))
+            k = d.property_mapping.get(p)
+            value = by_key.get((k["siid"], k["piid"])) if k and p in props else None
             return value if type(value) is value_type else None
         state, task = val(P.STATE), val(P.TASK_STATUS)
         if state is None or task is None:
@@ -261,17 +267,21 @@ class Robot:
             rooms = {str(k): seg.name or str(k) for k, seg in (selected.segments or {}).copy().items()
                      if seg.visibility is not False and not seg.unmapped}
         self.save_token()
+        charging = val(P.CHARGING_STATUS)
+        faults = val(P.FAULTS, str)
+        error = blocking_error(val(P.ERROR), faults if faults is not None else val(P.FAULTS), self_wash_base)
+        docked_drying = bool(self_wash_base and val(P.SELF_WASH_BASE_STATUS) == BaseStatus.DRYING
+                             and charging in (Charging.CHARGING, Charging.CHARGING_COMPLETED))
         snapshot = {"state": S(state).name if state in S._value2member_map_ else str(state),
                     "task": T(task).name if task in T._value2member_map_ else str(task),
-                    "battery": val(P.BATTERY_LEVEL), "error": val(P.ERROR), "map_id": map_id,
+                    "battery": val(P.BATTERY_LEVEL), "error": error, "docked_drying": docked_drying, "map_id": map_id,
                     "rooms": rooms, "saved_map": selected, "fw": str(d.info.firmware_version or "")}
         if not for_command:
-            charging = val(P.CHARGING_STATUS) if P.CHARGING_STATUS in fresh else None
             snapshot["dock_status"] = dock_position(snapshot["state"], charging)
             snapshot["camera"] = camera_status(d)
             switches = val(P.AUTO_SWITCH_SETTINGS, str)
             snapshot["cleangenius"] = cleangenius_value(switches)
-            current = {p: val(p) for p in (*fresh, P.STATE, P.TASK_STATUS, P.ERROR)}
+            current = {p: val(p) for p in (*fresh, *station_props, P.STATE, P.TASK_STATUS, P.ERROR) if p in props}
             if P.AUTO_SWITCH_SETTINGS in props:
                 current[P.AUTO_SWITCH_SETTINGS] = switches
                 current[AS.CLEANGENIUS] = snapshot["cleangenius"]
@@ -281,11 +291,7 @@ class Robot:
         if for_command:
             map_list = val(P.MAP_LIST, str)
             map_key = self._command_map_key(selected, map_list)
-            faults = val(P.FAULTS, str)
-            snapshot["error"] = blocking_error(val(P.ERROR), faults if faults is not None else val(P.FAULTS), cap.self_wash_base)
             snapshot.update(command_time=observed_at, command_map=map_key is not None,
-                            docked_drying=bool(d.capability.self_wash_base and val(P.SELF_WASH_BASE_STATUS) == BaseStatus.DRYING
-                                               and val(P.CHARGING_STATUS) in (Charging.CHARGING, Charging.CHARGING_COMPLETED)),
                             command_grid=selected.dimensions.grid_size if map_key else None,
                             command_map_key=map_key, command_map_list=map_list,
                             command_settings=self._command_settings(val, mode_props))

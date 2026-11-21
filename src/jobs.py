@@ -137,27 +137,35 @@ def check_observation_age(snap):
         raise Refused("Нет свежего ответа о состоянии робота")
 
 
-def _check_state(action, snap):
-    check_observation_age(snap)
-    state, task = snap.get("state"), snap.get("task")
-    if action == "start":
-        ready = state in AT_REST or (state == "DRYING" and snap.get("docked_drying") is True)
-        if task == "COMPLETED" and ready and snap.get("error") == 0:
-            return
-        if state == "WASHING":
-            raise Refused("Станция моет швабры. Запуск станет доступен после промывки")
-        if type(snap.get("error")) is int and snap["error"] > 0:
-            raise Refused(f"Робот сообщает об ошибке {snap['error']}. Подробности есть в Dreamehome")
-        if task in ACTIVE or task in PAUSED:
-            raise Refused("У робота есть незавершённая уборка. Завершите её перед новым заданием")
-        raise Refused("Робот занят, в ошибке или ещё не подтвердил готовность")
+def job_availability(snap):
+    state, task, error = snap.get("state"), snap.get("task"), snap.get("error")
+    ready = state in AT_REST or (state == "DRYING" and snap.get("docked_drying") is True)
+    if task == "COMPLETED" and ready and error == 0:
+        reason = None
+    elif state == "WASHING":
+        reason = "Станция моет швабры. Запуск станет доступен после промывки"
+    elif state == "WASHING_PAUSED":
+        reason = "Промывка швабр на паузе. Запуск станет доступен после промывки"
+    elif type(error) is int and error > 0:
+        reason = f"Робот сообщает об ошибке {error}. Подробности есть в Dreamehome"
+    elif task in ACTIVE or task in PAUSED:
+        reason = "У робота есть незавершённая уборка. Завершите её перед новым заданием"
+    else:
+        reason = "Робот занят, в ошибке или ещё не подтвердил готовность"
     running = task in ACTIVE and state in CLEANING
     paused = task in PAUSED and state == "PAUSED"
-    valid = {"pause": running, "resume": paused and snap.get("error") == 0,
-             "stop": running or paused or state == "RETURNING",
-             "dock": running or paused or (task == "COMPLETED" and state == "IDLE")}
-    if not valid[action]:
-        raise Refused("Действие недоступно в текущем состоянии робота")
+    return {"start": reason is None, "start_reason": reason,
+            "pause": running, "resume": paused and error == 0,
+            "stop": running or paused or state == "RETURNING",
+            "dock": running or paused or (task == "COMPLETED" and state == "IDLE")}
+
+
+def _check_state(action, snap):
+    check_observation_age(snap)
+    availability = job_availability(snap)
+    if not availability[action]:
+        reason = availability["start_reason"] if action == "start" else "Действие недоступно в текущем состоянии робота"
+        raise Refused(reason)
 
 
 def _check_start(request, snap, map_info):

@@ -1,21 +1,30 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { adjustUnderlay, cleaningCoverage, dragZone, jobRequest, mapInfo, mapOverlays, mapView, maxZones, motionActions, pendingRequest, pointOnMap, preferenceInfo,
+import { adjustUnderlay, cleaningCoverage, dragZone, jobBlock, jobRequest, mapInfo, mapOverlays, mapView, maxZones, pendingRequest, pointOnMap, preferenceInfo,
   preferenceRequest, rectanglePaths, requestIdentity, underlayInfo, zoneHitsNoGo, zoneInBounds, zoneMeasures, zoneProblem } from '../web/controls.js';
 
 const map = mapInfo({ id: 7, revision: 'r2', bounds: [-300, -100, 500, 650],
   rooms: { 1: 'Кухня', 3: 'Холл', wrong: 'Не комната' }, svg: '<svg/>' });
 const automatic = { suction: '', water: '', repeats: '1' };
 
-test('motion controls match the current cleaning, pause, return and dock states', () => {
-  const actions = (state, cleaning, position) => Object.entries(motionActions(state, cleaning, position))
-    .filter(([, available]) => available).map(([action]) => action);
-  assert.deepEqual(actions('SWEEPING', true, 'away'), ['pause', 'stop', 'dock']);
-  assert.deepEqual(actions('PAUSED', false, 'away'), ['resume', 'stop', 'dock']);
-  assert.deepEqual(actions('RETURNING', false, 'returning'), ['stop']);
-  assert.deepEqual(actions('IDLE', false, 'away'), ['dock']);
-  assert.deepEqual(actions('CHARGING_COMPLETED', false, 'docked'), []);
-  assert.deepEqual(actions('IDLE', false, 'docked'), []);
+test('panel uses state availability for commands and preserves preview on a read-only older controller', () => {
+  const online = {online: true, allow_commands: true};
+  const available = ['start', 'pause', 'resume', 'stop', 'dock'];
+  const actions = data => available.filter(action => !jobBlock({...online, ...data}, action));
+  const ready = {job_availability: {start: true, dock: true}};
+  assert.deepEqual(actions(ready), ['start', 'dock']);
+  assert.deepEqual(actions({...ready, dock_status: 'docked'}), ['start']);
+  assert.deepEqual(actions({...ready, online: false}), []);
+  assert.deepEqual(actions({...ready, allow_commands: false}), []);
+  assert.deepEqual(actions({tracking_active: true, state: 'HEADING_TO_EXTRA_CLEANING', job_availability: {}}), []);
+  assert.deepEqual(actions({state: 'PAUSED', job_availability: {stop: true, dock: true}}), ['stop', 'dock']);
+  assert.deepEqual(actions({state: 'RETURNING', job_availability: {stop: true}}), ['stop']);
+  assert.deepEqual(actions({state: 'IDLE'}), []);
+  const readOnly = {...online, allow_commands: false};
+  assert.equal(jobBlock(readOnly, 'start', true), '');
+  assert.equal(jobBlock({...readOnly, ...ready}, 'start', true), '');
+  assert.equal(jobBlock({...readOnly, job_availability: {start: false, start_reason: 'Промывка'}}, 'start', true), 'Промывка');
+  assert.ok(jobBlock({...readOnly, online: false}, 'start', true));
 });
 
 test('room aliases supply labels without changing the ordered request or saved map', () => {
