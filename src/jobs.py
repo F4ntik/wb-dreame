@@ -54,6 +54,12 @@ def _normalize(request):
     revision, kind = request["revision"], request["kind"]
     if not integer(request["map_id"], 1, 2**31 - 1) or not isinstance(revision, str) or not REVISION.fullmatch(revision):
         raise Refused("Укажите карту и её ревизию")
+    if kind == "shortcut":
+        if (request.keys() != START_FIELDS | {"shortcut_id", "shortcut_revision"}
+                or not integer(request["shortcut_id"], 26, 128) or not isinstance(request["shortcut_revision"], str)
+                or not REVISION.fullmatch(request["shortcut_revision"])):
+            raise Refused("Выберите сценарий из актуального списка Dreamehome")
+        return request.copy()
     if kind == "all":
         if request.keys() != START_FIELDS:
             raise Refused("Для всей карты задайте параметры уборки в Dreamehome")
@@ -120,6 +126,15 @@ def _check_start(request, snap, map_info):
     if not integer(snap.get("battery"), min_charge + 1, 100):
         raise Refused("Заряд слишком низкий или не подтверждён")
     kind = request["kind"]
+    if kind == "shortcut":
+        scene = snap.get("command_shortcut") or {}
+        if (request["shortcut_id"] != scene.get("id") or request["shortcut_revision"] != scene.get("revision")
+                or scene.get("map_id") != map_info["id"]
+                or any(str(room) not in map_info["rooms"] for room in scene["rooms"])):
+            raise Refused("Карта или сценарий Dreamehome изменились. Выберите сценарий заново")
+        for zone in scene["zones"]:
+            check_zone_geometry(zone, map_info, snap.get("command_grid"))
+        return
     if kind == "all":
         return
     if "expected_cleangenius" in request and request["expected_cleangenius"] != settings.get("cleangenius_level"):

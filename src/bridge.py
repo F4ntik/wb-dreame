@@ -7,6 +7,7 @@ from hashlib import sha256
 from pathlib import Path
 
 from config import CONFIG, DATA, MODELS, STATE, Refused, read, validate
+from entrance import Entrance
 from history_map import history_position, render_history
 from history_media import obstacle_photo, obstacles
 from jobs import ACTIVE, Jobs
@@ -17,6 +18,7 @@ from panel import interactive_map, map_snapshot, render_map_frame
 from robot import TRACKING_STATES, Robot, check_writes_with
 from room_names import ROOM_CATALOG, RoomNames, room_aliases
 from schedules import read_schedules, save_charging_schedule, save_cleaning_schedule
+from shortcuts import read_shortcut, read_shortcuts
 from underlay import Underlay
 from webui import WebConflict, start_ui
 
@@ -38,6 +40,7 @@ class Bridge:
         self.jobs = None
         self.underlay = Underlay(DATA)
         self.room_names = RoomNames()
+        self.entrance = Entrance(STATE / "entrance.json")
         self.latest = {"online": False, "state": "Ожидание данных", "map": None, "battery": None, "details": {}}
 
     def pub(self, suffix, value):
@@ -165,6 +168,15 @@ class Bridge:
         revision = sha256(encode([plan["revision"], drawing["matrix"]]).encode()).hexdigest()
         return {**plan, "revision": revision}, drawing
 
+    def web_entrance(self, request=None):
+        with self.io_lock:
+            plan = self.latest.get("map") if self.latest["online"] else None
+            device_id = self.room_names.device_id
+            if request is None:
+                return self.entrance.view(device_id, plan)
+            displayed, _ = self.display_map(plan)
+            return self.entrance.save(device_id, plan, displayed, request)
+
     def web_adjust(self, request):
         with self.io_lock:
             plan = self.latest.get("map")
@@ -194,7 +206,15 @@ class Bridge:
         try:
             if not self.cloud or not self.latest["online"] or self.halt.is_set():
                 raise WebConflict("Нет свежих данных робота")
+            if request.get("kind") == "shortcut":
+                from jobs import _normalize
+                normalized = _normalize(request)
+                scene = read_shortcut(self.cloud, normalized["shortcut_id"])
+            else:
+                scene = None
             observation = self.cloud.observe(for_command=True)
+            if scene is not None:
+                observation["command_shortcut"] = scene
             current = interactive_map(observation.get("saved_map"), self.latest["map"])
             current, _ = self.display_map(current)
             if preview:
@@ -222,6 +242,16 @@ class Bridge:
                 result = apply_preference(self.cloud, request, allowed=self.commands_enabled())
             self.refresh.set()
             return {**result, "status": "confirmed", "message": "Значение подтверждено роботом"}
+        finally:
+            self.io_lock.release()
+
+    def web_shortcuts(self, sid=None):
+        if not self.io_lock.acquire(timeout=1.5):
+            raise WebConflict("Драйвер опрашивает пылесос. Обновите список через несколько секунд.")
+        try:
+            if not self.cloud or not self.latest["online"] or self.halt.is_set():
+                raise WebConflict("Нет связи с Dreamehome.")
+            return read_shortcut(self.cloud, sid) if sid is not None else {"items": read_shortcuts(self.cloud)}
         finally:
             self.io_lock.release()
 

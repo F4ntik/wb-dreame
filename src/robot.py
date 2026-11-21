@@ -13,6 +13,7 @@ from jobs import CLEANING, blocking_error, check_observation_age
 from panel import map_snapshot
 from preferences import cleangenius_value, offered, property_write_permitted
 from schedules import delete_write_permitted
+from shortcuts import permitted as shortcut_permitted, start_shortcut
 from vendor.device import DreameVacuumDevice
 from vendor.protocol import DreameVacuumDreameHomeCloudProtocol
 from vendor.types import DreameVacuumAction as A, DreameVacuumAutoSwitchProperty as AS, DreameVacuumStatus as DS
@@ -42,14 +43,14 @@ def dock_position(state, charging):
 
 
 def guard(method, parameters):
-    if method == "get_properties":
+    if method == "get_properties" or shortcut_permitted(method, parameters, write=False):
         return
     authorized_write = property_write_permitted(method, parameters)
     if method == "action" and isinstance(parameters, dict):
         pair = (parameters.get("siid"), parameters.get("aiid"))
         if pair in READ_ACTIONS:
             return
-        authorized_write = pair in ALLOWED_ACTION.get() or delete_write_permitted(method, parameters)
+        authorized_write = pair in ALLOWED_ACTION.get() or delete_write_permitted(method, parameters) or shortcut_permitted(method, parameters, write=True)
     if authorized_write:
         verify = WRITE_AUTHORIZATION.get()
         if verify is not None and not verify():
@@ -320,6 +321,8 @@ class Robot:
             raise Refused("Управление отключено в настройках драйвера")
         self.validate_job(request, snap)
         d = self.device
+        if request.get("kind") == "shortcut":
+            return start_shortcut(self, request["shortcut_id"])
         action = JOB_ACTIONS[request["action"]]
         params = None
         kind = request.get("kind")

@@ -48,6 +48,24 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/dreame/api/state":
             self.reply(200, self.server.bridge.web_state())
             return
+        if path == "/dreame/api/entrance":
+            try:
+                self.reply(200, self.server.bridge.web_entrance())
+            except Refused as exc:
+                self.reply(409, {"message": str(exc)})
+            return
+        shortcuts = re.fullmatch(r"/dreame/api/shortcuts(?:/([1-9][0-9]{0,2}))?", path)
+        if shortcuts:
+            try:
+                sid = shortcuts.group(1)
+                result = self.server.bridge.web_shortcuts(int(sid) if sid is not None else None)
+            except (Refused, WebConflict) as exc:
+                self.reply(409, {"message": str(exc)})
+            except Exception:
+                self.reply(503, {"message": "Не удалось прочитать сценарии Dreamehome."})
+            else:
+                self.reply(200, result)
+            return
         if path == "/dreame/api/schedules":
             try:
                 self.reply(200, self.server.bridge.web_schedules())
@@ -90,7 +108,7 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         path = urlsplit(self.path).path
         if path not in ("/dreame/api/job", "/dreame/api/preview", "/dreame/api/preference", "/dreame/api/underlay",
-                        "/dreame/api/schedules"):
+                        "/dreame/api/schedules", "/dreame/api/entrance"):
             self.reply(404, {"status": "error", "message": "Действие не найдено"})
             return
         try:
@@ -120,7 +138,9 @@ class Handler(BaseHTTPRequestHandler):
             self.reply(400, {"status": "error", "message": "Проверьте формат задания"})
             return
         try:
-            if path.endswith("/underlay"):
+            if path.endswith("/entrance"):
+                outcome = self.server.bridge.web_entrance(request)
+            elif path.endswith("/underlay"):
                 outcome = self.server.bridge.web_adjust(request)
             elif path.endswith("/preference"):
                 outcome = self.server.bridge.web_preference(request)
