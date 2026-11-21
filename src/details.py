@@ -159,9 +159,11 @@ def _history(cache, cleaning_count):
     return [row for row, _ in records.values()], available
 
 
-def _add(rows, label, value, unit=None):
+def _add(rows, label, value, unit=None, *, key=None):
     if value is not None:
         row = {"label": label, "value": value}
+        if key is not None:
+            row["key"] = key.name.lower()
         if unit is not None:
             row["unit"] = unit
         rows.append(row)
@@ -183,13 +185,13 @@ def read_details(device, *, current=None):
 
     metrics = []
     for prop, label, labels in BASE_STATES:
-        _add(metrics, label, _choice(get(prop), labels))
+        _add(metrics, label, _choice(get(prop), labels), key=prop)
     if get(P.SELF_WASH_BASE_STATUS) == 2:
-        _add(metrics, "Прогресс сушки салфеток", _number(get(P.DRYING_PROGRESS), 100), "%")
+        _add(metrics, "Прогресс сушки салфеток", _number(get(P.DRYING_PROGRESS), 100), "%", key=P.DRYING_PROGRESS)
     for prop, label, unit in TOTALS:
-        _add(metrics, label, _number(get(prop)), unit)
+        _add(metrics, label, _number(get(prop)), unit, key=prop)
     for prop, label in CONSUMABLES:
-        _add(metrics, label, _number(get(prop), 100), "%")
+        _add(metrics, label, _number(get(prop), 100), "%", key=prop)
 
     settings = []
     if type(get(P.CLEANING_MODE)) is int:

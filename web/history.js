@@ -1,4 +1,8 @@
+import { glyph } from './views.js';
 const day = new Intl.DateTimeFormat('ru-RU', { dateStyle: 'medium', timeStyle: 'short' });
+const recordDay = new Intl.DateTimeFormat('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' });
+const recordTime = new Intl.DateTimeFormat('ru-RU', { hour: '2-digit', minute: '2-digit' });
+const PAGE_SIZE = 6;
 const numbers = new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 1 });
 const recordPlural = new Intl.PluralRules('ru-RU');
 const forms = { one: 'запись', few: 'записи', many: 'записей', other: 'записей' };
@@ -169,6 +173,7 @@ export function historyView(coverageSwitches) {
   const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
   let records = [];
   let shown = [];
+  let page = 0;
   let available = false;
   let signature = '';
   let active = null;
@@ -211,6 +216,12 @@ export function historyView(coverageSwitches) {
     const buttonFocused = list.contains(document.activeElement) ? document.activeElement.dataset.timestamp : null;
     shown = records.filter(row => filter.value === 'all' || row.status === filter.value);
     $('history-toolbar').hidden = !records.length;
+    const count = Math.ceil(shown.length / PAGE_SIZE);
+    page = Math.max(0, Math.min(page, count - 1));
+    $('history-pages').hidden = count < 2;
+    $('journal-page').textContent = count ? `${page + 1} из ${count}` : '';
+    $('journal-newer').disabled = page === 0;
+    $('journal-older').disabled = page + 1 >= count;
     const totals = historyTotals(shown);
     const total = [`${shown.length} ${forms[recordPlural.select(shown.length)]}`];
     if (totals.durationCount) total.push(metric(totals.minutes, ' мин') + (totals.durationCount < shown.length ? ` по ${totals.durationCount} зап.` : ''));
@@ -220,32 +231,42 @@ export function historyView(coverageSwitches) {
       const message = records.length ? 'Записей с таким результатом нет.' : available ? 'Записей об уборках пока нет.' : 'История пока недоступна.';
       list.replaceChildren(element('p', message, 'muted'));
     } else {
-      const table = element('table', undefined, 'history-table');
-      const header = table.createTHead().insertRow();
-      for (const title of ['Дата', 'Время, мин', 'Площадь, м²', 'Результат']) {
-        const cell = element('th', title);
-        cell.scope = 'col';
-        header.append(cell);
-      }
-      const body = table.createTBody();
-      for (const row of shown) {
-        const date = day.format(row.timestamp * 1000);
-        const tr = body.insertRow();
-        const button = element('button', date, 'history-link');
+      const fragment = document.createDocumentFragment();
+      let dateGroup;
+      let group;
+      for (const row of shown.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE)) {
+        const date = new Date(row.timestamp * 1000);
+        const dateLabel = recordDay.format(date);
+        if (dateGroup !== dateLabel) {
+          dateGroup = dateLabel;
+          group = element('ul', undefined, 'journal-group');
+          fragment.append(element('h3', dateLabel, 'journal-date'), group);
+        }
+        const button = element('button', undefined, 'history-link journal-row');
         button.type = 'button';
         button.dataset.timestamp = row.timestamp;
-        button.setAttribute('aria-label', `Открыть уборку за ${date}`);
-        tr.insertCell().append(button);
-        for (const value of [metric(row.duration, ''), metric(row.area, ''), row.status || '—']) {
-          tr.insertCell().textContent = value;
+        button.setAttribute('aria-label', 'Открыть уборку за ' + day.format(date));
+        const taskIcon = element('span', undefined, 'journal-mark');
+        taskIcon.append(glyph(row.details[0] === 'По зоне' ? 'area' : row.details[0] === 'По комнатам' ? 'map' : 'clean'));
+        const title = element('span', undefined, 'journal-title');
+        title.append(element('strong', recordTime.format(date)), element('small', row.details[0] || row.details[1] || 'Уборка'));
+        const measures = element('span', undefined, 'journal-measures');
+        for (const [icon, value, unit] of [['area', row.area, ' м²'], ['time', row.duration, ' мин']]) {
+          if (value === null) continue;
+          const item = element('span'); item.append(glyph(icon), document.createTextNode(metric(value, unit))); measures.append(item);
         }
-        tr.addEventListener('click', () => {
+        const result = element('span', row.status || 'Без результата', 'journal-result');
+        if (row.status === 'Завершена') result.dataset.complete = 'true';
+        const arrow = element('span', '›', 'journal-arrow'); arrow.setAttribute('aria-hidden', 'true');
+        button.append(taskIcon, title, measures, result, arrow);
+        button.addEventListener('click', () => {
           opener = button;
           dialog.showModal();
           showRecord(row);
         });
+        const li = element('li'); li.append(button); group.append(li);
       }
-      list.replaceChildren(table);
+      list.replaceChildren(fragment);
     }
     if (buttonFocused) restoreFocus(buttonFocused);
     updateNavigation();
@@ -253,7 +274,7 @@ export function historyView(coverageSwitches) {
 
   function restoreFocus(timestamp) {
     if (!timestamp || !Number.isSafeInteger(Number(timestamp))) return;
-    (list.querySelector(`button[data-timestamp="${Number(timestamp)}"]`) || $('history-section').querySelector('summary'))?.focus({ preventScroll: true });
+    (list.querySelector(`button[data-timestamp="${Number(timestamp)}"]`) || $('tab-history'))?.focus({ preventScroll: true });
   }
 
   function setZoom(value) {
@@ -550,7 +571,14 @@ export function historyView(coverageSwitches) {
     restoreFocus(opener?.dataset.timestamp);
     opener = null;
   });
-  filter.addEventListener('change', renderList);
+  filter.addEventListener('change', () => { page = 0; renderList(); });
+  for (const [id, step] of [['journal-newer', -1], ['journal-older', 1]]) {
+    $(id).addEventListener('click', () => {
+      page += step;
+      renderList();
+      list.querySelector('.history-link')?.focus();
+    });
+  }
   retry.addEventListener('click', () => { if (active) showRecord(active); });
   previous.addEventListener('click', () => neighbour(1));
   next.addEventListener('click', () => neighbour(-1));

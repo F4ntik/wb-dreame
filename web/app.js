@@ -1,6 +1,7 @@
 import { adjustUnderlay, cleaningCoverage, dragZone, jobRequest, mapInfo, mapOverlays, mapView, pendingRequest, pointOnMap, preferenceInfo,
   preferenceRequest, rectanglePaths, requestIdentity, safeMapSvg, svgNS, underlayInfo, underlayUrl, zoneHitsNoGo, zoneInBounds,
   zoneMeasures } from './controls.js';
+import { initViews, resourceWidget } from './views.js';
 import { historyView } from './history.js';
 import { roomNameEditor } from './room-names.js';
 
@@ -62,6 +63,8 @@ for (const input of coverageSwitches) {
   });
 }
 const renderHistory = historyView(coverageSwitches);
+const renderResources = resourceWidget(byId('metrics'));
+initViews();
 const numbers = new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 1 });
 const measures = new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 2 });
 const frameTime = new Intl.DateTimeFormat('ru-RU', { timeStyle: 'medium' });
@@ -983,7 +986,7 @@ function render(data, keepAlignment = false) {
   const detailKey = JSON.stringify([details, [...editable]]);
   if (lastDetails !== detailKey) {
     renderHistory(details);
-    renderRecords('metrics', details.metrics);
+    renderResources(details.metrics);
     const settings = Array.isArray(details.settings) ? details.settings.filter(item => !editable.has(item?.label)) : [];
     byId('settings').hidden = !settings.length && supplied.length > 0;
     renderRecords('settings', settings);
