@@ -289,7 +289,8 @@ const overlayMinimum = { no_go: 3, no_mop: 3, wall: 2, path: 2, robot: 1 };
 const routeModes = new Set(['S', 'M', 'W', 'L']);
 const maxCoverageRuns = 32_768;
 
-export function mapOverlays(items, savedItems) {
+export function mapOverlays(items, savedItems, dockStatus) {
+  const liveRobot = Array.isArray(items) && dockStatus !== 'docked';
   items ??= savedItems;
   if (!Array.isArray(items)) return [];
   const objects = [];
@@ -312,8 +313,9 @@ export function mapOverlays(items, savedItems) {
             rect.every(value => Number.isFinite(value) && Math.abs(value) <= 10_000_000) && rect[2] > 0 && rect[3] > 0)) {
         coverage = { kind: 'coverage', rects: rects.map(([x, y, width, height]) => [x, -y - height, width, height]) };
       }
-    } else if (item.kind === 'robot') robot = geometry('robot', Array.isArray(item.points) ? item.points.slice(0, 1) : null) || robot;
-    else if (objects.length < 128) {
+    } else if (item.kind === 'robot') {
+      if (liveRobot) robot = geometry('robot', Array.isArray(item.points) ? item.points.slice(0, 1) : null) || robot;
+    } else if (objects.length < 128) {
       const shape = geometry(item.kind, item.points);
       if (shape) objects.push(shape);
     }

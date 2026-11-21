@@ -16,6 +16,8 @@ class DisplayStatusTest(unittest.TestCase):
         self.assertIsNone(dock_position("DRYING", None))
         self.assertEqual(dock_position("SWEEPING", Charging.CHARGING_COMPLETED), "away")
         self.assertEqual(dock_position("RETURNING_TO_WASH", None), "returning")
+        self.assertEqual(dock_position("ENTERING_DOCK", Charging.CHARGING_COMPLETED), "returning")
+        self.assertEqual(dock_position("LEAVING_DOCK", Charging.CHARGING), "away")
         self.assertIsNone(dock_position("IDLE", Charging.NOT_CHARGING))
 
     def test_history_recovers_even_when_completion_event_was_missed(self):

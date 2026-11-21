@@ -2,13 +2,14 @@ import { adjustUnderlay, cleaningCoverage, dragZone, jobBlock, jobRequest, mapIn
   preferenceRequest, rectanglePaths, requestIdentity, roomStatusLabels, safeMapSvg, svgNS, underlayInfo, underlayUrl, zoneHitsNoGo, zoneInBounds,
   zoneHandleLayout, zoneListInBounds, zoneMeasurePlacement, zoneMeasures, zoneProblem, zoneResizeCursor } from './controls.js';
 import { scenarios } from './scenarios.js';
-import { confirmMessage, initViews, panelNavigation } from './views.js';
+import { confirmMessage, glyph, initViews, mapRobotIcon, panelNavigation, robotToDockScale } from './views.js';
 import { resourceWidget } from './resources.js';
 import { historyRows, historyView } from './history.js';
 
 const byId = id => document.getElementById(id);
 const mapHost = byId('map');
 const robotMarker = byId('robot-marker');
+robotMarker.append(mapRobotIcon());
 const livePosition = byId('live-position');
 const liveFrameTime = byId('live-frame-time');
 const roomList = byId('room-list');
@@ -70,6 +71,7 @@ const alignmentResult = byId('alignment-result');
 const forgetRequest = byId('forget-request');
 const retryStorageKey = 'dreame.pending-request';
 const preferenceList = byId('preference-list');
+const cleaningMode = byId('cleaning-mode');
 const cleaningModeOptions = byId('cleaning-mode-options');
 const preferenceKeys = new WeakMap();
 const preferenceDrafts = new Map();
@@ -114,6 +116,7 @@ let map = null;
 let draftMap = null;
 let svg = null;
 let scene = null;
+let dockMarker = null;
 let zoneLayer = null;
 let overlaysGroup = null;
 let overlaysKey = '';
@@ -460,8 +463,11 @@ function renderJob() {
   byId('room-choices').hidden = target !== 'rooms' || !map || editing;
   byId('to-job').hidden = !map;
   label(byId('to-job'), editing ? 'К сохранению ↓' : 'К заданию ↓');
-  jobMode.hidden = editing || cleanGenius === null;
-  if (!jobMode.hidden) label(jobMode, `CleanGenius · ${cleanGeniusText()}`);
+  jobMode.hidden = editing || cleaningMode.hidden;
+  if (!jobMode.hidden) {
+    const reading = cleanGenius === null ? 'нет данных' : cleanGeniusText();
+    label(byId('job-mode-value'), `${telemetry.online === true ? '' : 'До потери связи — '}${reading}`);
+  }
   label(byId('tuning-title'), editing ? 'Параметры сценария' : 'Параметры задания');
   label(byId('tuning-hint'), editing ? 'Сохраняются на контроллере. «Как у робота» использует настройки на момент запуска.' : 'Действуют для этого запуска.');
   byId('entrance-editor-actions').hidden = !editing;
@@ -545,6 +551,7 @@ function replaceMap(next) {
   }
   roomList.replaceChildren();
   scene = null;
+  dockMarker = null;
   zoneLayer = null;
   overlaysGroup = null;
   overlaysKey = '';
@@ -579,7 +586,22 @@ function replaceMap(next) {
   overlaysGroup.setAttribute('aria-hidden', 'true');
   zoneLayer = document.createElementNS(svgNS, 'g');
   zoneLayer.setAttribute('aria-hidden', 'true');
-  scene.insertBefore(overlaysGroup, scene.querySelector(':scope > [data-dock]'));
+  dockMarker = scene.querySelector(':scope > [data-dock]');
+  if (dockMarker) {
+    const drawing = document.createElementNS(svgNS, 'g');
+    drawing.append(...dockMarker.children);
+    const parked = mapRobotIcon();
+    const size = 24 * robotToDockScale;
+    parked.classList.add('parked-robot');
+    parked.setAttribute('width', size);
+    parked.setAttribute('height', size);
+    parked.setAttribute('x', -size / 2);
+    parked.setAttribute('y', 2.5 - size / 2);
+    // The disk slides under the front edge of the lid in the plan view.
+    drawing.insertBefore(parked, drawing.querySelector(':scope > g:last-child'));
+    dockMarker.append(drawing);
+  }
+  scene.insertBefore(overlaysGroup, dockMarker);
   scene.append(zoneLayer);
   mapHost.replaceChildren(svg, roomPins, robotMarker, zonePins, zoneBadge, zoneHandles, removeMapZone);
 }
@@ -630,10 +652,30 @@ function clearAlignmentZone(message) {
 
 function updateRobotMarker() {
   const point = features.find(feature => feature.kind === 'robot')?.points[0];
-  const matrix = scene?.getScreenCTM();
-  robotMarker.hidden = !matrix || !point;
+  const matrix = point && scene?.getScreenCTM();
+  const screen = point && matrix ? new DOMPoint(...point).matrixTransform(matrix) : null;
+  robotMarker.hidden = !screen;
+  if (dockMarker) {
+    const pose = dockMarker.getScreenCTM();
+    const unit = pose && Math.hypot(pose.a, pose.b);
+    if (unit) {
+      const size = parseFloat(getComputedStyle(robotMarker).width);
+      const transform = `scale(${size / (24 * robotToDockScale * unit)})`;
+      const drawing = dockMarker.firstElementChild;
+      if (drawing.getAttribute('transform') !== transform) drawing.setAttribute('transform', transform);
+    }
+    const parked = telemetry.online === true && telemetry.dock_status === 'docked' && telemetry.map?.geometry_key !== null;
+    if (parked !== dockMarker.hasAttribute('data-occupied')) {
+      dockMarker.toggleAttribute('data-occupied', parked);
+      dockMarker.setAttribute('aria-label', parked ? 'Пылесос на зарядной станции' : 'Зарядная станция');
+    }
+    // A live point can pass through the station before the robot confirms docking.
+    const box = !parked && screen && dockMarker.getBoundingClientRect();
+    const overlaps = box && Math.hypot(Math.max(box.left - screen.x, screen.x - box.right, 0),
+      Math.max(box.top - screen.y, screen.y - box.bottom, 0)) < robotMarker.offsetWidth / 2;
+    dockMarker.style.visibility = overlaps ? 'hidden' : '';
+  }
   if (robotMarker.hidden) return null;
-  const screen = new DOMPoint(...point).matrixTransform(matrix);
   const bounds = mapHost.getBoundingClientRect();
   robotMarker.style.left = `${screen.x - bounds.left - mapHost.clientLeft}px`;
   robotMarker.style.top = `${screen.y - bounds.top - mapHost.clientTop}px`;
@@ -662,7 +704,7 @@ function renderLivePosition() {
   const roomId = telemetry.live_room_id;
   const timestamp = telemetry.live_frame_at_ms;
   const confirmedTime = Number.isSafeInteger(timestamp) && timestamp > 0 && timestamp <= 8.64e15;
-  const suppliedRoom = confirmedTime && map && Number.isSafeInteger(roomId) && Object.hasOwn(map.rooms, roomId)
+  const suppliedRoom = telemetry.dock_status !== 'docked' && confirmedTime && map && Number.isSafeInteger(roomId) && Object.hasOwn(map.rooms, roomId)
     ? map.rooms[roomId] : null;
   const outcomes = Object.keys(telemetry.live_room_status || {}).length;
   const dated = confirmedTime && (point || suppliedRoom || outcomes || features.some(feature => ['path', 'coverage'].includes(feature.kind)));
@@ -671,8 +713,13 @@ function renderLivePosition() {
     liveFrameTime.dateTime = new Date(timestamp).toISOString();
     label(liveFrameTime, `Данные на ${frameTime.format(timestamp)}`);
   }
-  livePosition.hidden = !point && !suppliedRoom && !trackingActive();
+  const parked = dockMarker?.hasAttribute('data-occupied');
+  livePosition.hidden = !parked && !point && !suppliedRoom && !trackingActive();
   if (livePosition.hidden) return;
+  if (parked) {
+    label(livePosition, 'Пылесос на зарядной станции');
+    return;
+  }
   if (!point) {
     label(livePosition, suppliedRoom ? `Пылесос в комнате «${suppliedRoom}» · ждём координаты`
       : map ? 'Ждём свежую позицию пылесоса.' : 'Ждём карту текущей уборки.');
@@ -719,7 +766,7 @@ function renderOverlays(items, savedItems) {
     return;
   }
   const [left, bottom, right, top] = map.bounds;
-  features = mapOverlays(items, savedItems).filter(({ kind, points }) => {
+  features = mapOverlays(items, savedItems, telemetry.dock_status).filter(({ kind, points }) => {
     if (kind !== 'robot') return true;
     const [[x, y]] = points;
     return x >= left && x <= right && y >= -top && y <= -bottom;
@@ -737,7 +784,10 @@ function renderOverlays(items, savedItems) {
   const legend = byId('map-legend');
   legend.replaceChildren();
   for (const kind of new Set(features.map(item => item.kind))) {
-    if (Object.hasOwn(overlayLabels, kind)) legend.append(make('span', overlayLabels[kind], kind));
+    if (!Object.hasOwn(overlayLabels, kind)) continue;
+    const entry = make('span', overlayLabels[kind], kind);
+    if (kind === 'robot') entry.prepend(mapRobotIcon());
+    legend.append(entry);
   }
   if (coverage) drawCoverage(coverage);
   for (const { kind, points } of features) {
@@ -934,10 +984,9 @@ layers.addEventListener('click', () => {
 });
 byId('route-switch').addEventListener('change', event => { mapHost.dataset.route = String(event.target.checked); });
 byId('to-job').addEventListener('click', () => byId('job-title').focus());
-jobMode.addEventListener('click', () => {
-  byId('tab-settings').click();
-  const control = cleaningModeOptions.querySelector('input:checked:not(:disabled)');
-  (control || byId('tab-settings')).focus();
+document.addEventListener('dreame:view', ({detail}) => {
+  if (detail === 'map' && cleaningMode.parentElement !== jobMode) jobMode.append(cleaningMode);
+  if (detail === 'settings' && cleaningMode.parentElement === jobMode) byId('settings').before(cleaningMode);
 });
 byId('retry-connection').addEventListener('click', poll);
 for (const input of zoneFields) input.addEventListener('input', () => {
@@ -1184,7 +1233,9 @@ function renderPreferenceRows(host, entries) {
       : value === '' ? '—' : `${value}${entry.unit ? ` ${entry.unit}` : ''}`;
     const source = telemetry.online === true ? 'На роботе' : 'До потери связи';
     label(row.querySelector('.preference-actual'), `${source} — ${text(String(entry.value))}`);
-    label(row.querySelector('.preference-draft'), `Выбрано — ${text(draft)}`);
+    const draftReading = row.querySelector('.preference-draft');
+    draftReading.hidden = entry.key === 'cleangenius' && draft === String(entry.value);
+    label(draftReading, `Выбрано — ${text(draft)}`);
     const button = row.querySelector('button');
     label(button, preferenceBusy === entry.key ? 'Сохраняем…' : 'Сохранить');
     button.disabled = disabled || !preferenceRequest(entry, draft === '' ? NaN : Number(draft));
@@ -1201,27 +1252,33 @@ function renderPreferenceRows(host, entries) {
 function setPreferences(items, rawMode) {
   preferences = preferenceInfo(items);
   const mode = preferences.find(entry => entry.key === 'cleangenius')?.value ?? rawMode;
+  if (mode !== cleanGenius && preferenceMessages.get('cleangenius')?.error === false) preferenceMessages.delete('cleangenius');
   cleanGenius = [0, 1, 2].includes(mode) ? mode : null;
 }
 
 function renderPreferences() {
   const others = preferences.filter(entry => entry.key !== 'cleangenius');
   const mode = preferences.find(entry => entry.key === 'cleangenius' && entry.choices);
+  const accessHint = telemetry.online !== true ? 'Нет связи с роботом. Выбор останется на странице.'
+    : telemetry.allow_commands !== true ? 'Изменение настроек отключено в драйвере.' : '';
+  const modeMessage = preferenceMessages.get('cleangenius');
+  const missingError = !mode && modeMessage?.error ? modeMessage.text : '';
+  cleaningMode.hidden = !mode && cleanGenius === null && !missingError;
   const readonlyMode = byId('cleaning-mode-readonly');
-  byId('cleaning-mode').hidden = !mode && cleanGenius === null;
-  readonlyMode.hidden = Boolean(mode) || cleanGenius === null;
-  if (!readonlyMode.hidden) label(readonlyMode, `CleanGenius — ${cleanGeniusText()}`);
+  const reading = cleanGenius === null ? 'Режим CleanGenius не подтверждён.' : `CleanGenius — ${cleanGeniusText()}.`;
+  const modeHint = mode ? accessHint : `${reading} ${missingError || accessHint || 'Доступен только просмотр.'}`;
+  readonlyMode.hidden = !modeHint;
+  label(readonlyMode, modeHint);
   byId('preferences').hidden = !others.length;
   renderPreferenceRows(preferenceList, others);
   renderPreferenceRows(cleaningModeOptions, mode ? [mode] : []);
   const unlisted = [...preferenceMessages].findLast(([key, message]) =>
-    message.error && !preferences.some(entry => entry.key === key))?.[1];
+    key !== 'cleangenius' && message.error && !preferences.some(entry => entry.key === key))?.[1];
   const fallback = byId('preference-unavailable-result');
   fallback.hidden = !unlisted;
   label(fallback, unlisted?.text || '');
-  label(byId('preference-hint'), telemetry.online !== true ? 'Нет связи с роботом. Выбранные значения сохранены в этой вкладке.'
-    : telemetry.allow_commands !== true ? 'Изменение настроек отключено в драйвере.' : '');
-  byId('preference-hint').hidden = telemetry.online === true && telemetry.allow_commands === true;
+  label(byId('preference-hint'), accessHint);
+  byId('preference-hint').hidden = !accessHint || !cleaningMode.hidden;
 }
 
 async function savePreference(event) {
@@ -1232,7 +1289,7 @@ async function savePreference(event) {
   const value = row.elements.namedItem('value').value;
   const payload = preferenceRequest(preference, value === '' ? NaN : Number(value));
   if (!payload) return;
-  const restoreFocus = row.contains(document.activeElement);
+  const focusView = row.contains(document.activeElement) && row.closest('[role="tabpanel"]');
   const feedback = (text, error = true) => preferenceMessages.set(payload.key, {text, error});
   preferenceBusy = payload.key;
   preferenceMessages.delete(payload.key);
@@ -1266,9 +1323,12 @@ async function savePreference(event) {
     preferenceBusy = null;
     renderPreferences();
     renderJob();
-    if (restoreFocus && document.activeElement === document.body && !byId('view-settings').hidden) {
-      const currentRow = byId('view-settings').querySelector(`.preference-row[data-key="${payload.key}"]`);
-      (currentRow?.querySelector('button:not(:disabled)') || currentRow)?.focus({preventScroll: true});
+    if (focusView && !focusView.hidden && document.activeElement === document.body) {
+      const currentRow = focusView.querySelector(`.preference-row[data-key="${payload.key}"]`);
+      const control = currentRow?.querySelector('button:enabled') || currentRow?.querySelector('input:checked:enabled') || currentRow;
+      if (focusView.contains(jobMode) && !jobMode.hidden && (!currentRow || !jobMode.open)) {
+        jobMode.querySelector('summary').focus({preventScroll: true});
+      } else control?.focus({preventScroll: true});
     }
   }
 }
@@ -1330,7 +1390,25 @@ function render(data, keepAlignment = false, controllerReached = true, includePr
     label(byId('offline-message'), controllerReached ? 'Ждём ответа Dreamehome. Панель обновится автоматически.'
       : 'Проверьте подключение к сети Wiren Board. Панель повторит запрос.');
   }
-  label(byId('robot-state'), online ? (data.state_title || data.state || '—') : '—');
+  const drying = online && Array.isArray(data.details?.metrics)
+    ? data.details.metrics.find(row => row?.key === 'drying_progress' && row.unit === '%')?.value : null;
+  const hasProgress = Number.isFinite(drying) && drying >= 0 && drying <= 100;
+  const passive = ['IDLE', 'CHARGING', 'CHARGING_COMPLETED'].includes(data.state);
+  const dryingActivity = online && (data.state === 'DRYING' || (hasProgress && passive && data.dock_status === 'docked'));
+  label(byId('robot-state'), dryingActivity ? 'Сушит швабры' : online ? (data.state_title || data.state || '—') : '—');
+  const activityIcon = byId('activity-icon');
+  const iconName = dryingActivity ? 'dry' : 'robot';
+  if (activityIcon.dataset.icon !== iconName) {
+    activityIcon.dataset.icon = iconName;
+    activityIcon.replaceChildren(glyph(iconName));
+  }
+  const dryingRow = byId('mop-drying');
+  dryingRow.hidden = !hasProgress;
+  byId('mop-drying-label').hidden = !hasProgress || dryingActivity;
+  if (hasProgress) {
+    dryingRow.querySelector('progress').value = drying;
+    label(dryingRow.lastElementChild, `${numbers.format(drying)} %`);
+  }
   const battery = online && Number.isFinite(data.battery) && data.battery >= 0 && data.battery <= 100 ? data.battery : null;
   label(byId('battery'), battery === null ? '—' : `${numbers.format(battery)} %`);
   byId('battery-fill').parentElement.hidden = battery === null;

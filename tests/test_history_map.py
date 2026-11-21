@@ -113,6 +113,8 @@ class HistoryMapTest(unittest.TestCase):
         self.assertEqual((svg.get("width"), svg.get("height")), ("8", "9"))
         station = svg.find("{*}g[@data-dock]")
         self.assertTrue(station.get("transform").startswith("translate(1.4 2.5) "))
+        scale = float(station.get("transform").split("scale(")[1].rstrip(")"))
+        self.assertAlmostEqual(result["hardware_width_percent"], 100 * 24 * scale / 8, places=3)
         self.assertEqual(history_position(archive, -25.0, -15.0), [55.0, 61.11111])
         self.assertIsNone(history_position(archive, -31, -15))
         self.assertIsNone(history_position(archive, float("nan"), -15))

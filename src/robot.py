@@ -45,7 +45,9 @@ class PreferenceReading:
 
 
 def dock_position(state, charging):
-    if state.startswith("RETURNING") or charging == Charging.RETURN_TO_CHARGE:
+    if state == "LEAVING_DOCK":
+        return "away"
+    if state == "ENTERING_DOCK" or state.startswith("RETURNING") or charging == Charging.RETURN_TO_CHARGE:
         return "returning"
     if state in TRACKING_STATES or state in {"BUILDING", "REMOTE_CONTROL"}:
         return "away"

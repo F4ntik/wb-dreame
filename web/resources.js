@@ -78,8 +78,8 @@ export function resourceReadings(metrics) {
     if (!row) continue;
     const reported = key === 'detergent_left' ? rows.get('detergent_status')?.value : null;
     const item = supplyReading(key, row, typeof reported === 'string' ? reported : '');
-    if (tankKeys.has(key) && !item.action) equipment[meta[0]].status.push(row);
-    else items.push(item);
+    if (tankKeys.has(key)) equipment[meta[0]].status.push({ ...row, attention: !!item.action });
+    if (!tankKeys.has(key) || item.action) items.push(item);
     rows.delete(key);
     if (key === 'detergent_left') rows.delete('detergent_status');
   }
@@ -97,19 +97,8 @@ export function resourceReadings(metrics) {
 }
 
 const modelName = 'Dreame L40s Pro Ultra';
-const robotPhotos = 'https://api.ru.dreametech.com/media/catalog/product/cache/74c1057f7991b4edb2bc7bdaa94de933/s/';
-const partPhotos = 'https://fr.dreametech.com/cdn/shop/files/';
-const photographs = {
-  robot: robotPhotos + 'wk3xYixrkQPQ5pr/download/04.jpg?w=256',
-  dock: robotPhotos + 'EPRqR47CysdkPBc/download/05.jpg?w=256',
-  main_brush_left: partPhotos + 'RollerBrush-_02_1_160x.jpg?v=1736847097',
-  side_brush_left: partPhotos + 'output_160x.jpg?v=1716261506',
-  filter_left: partPhotos + 'output_7ecbea13-05d4-4e0e-8147-3d161e37029a_160x.jpg?v=1736847458',
-  mop_pad_left: partPhotos + '1_d09c295f-0c12-4a23-9a99-50c7e22121d5_160x.jpg?v=1698127445',
-  dust_bag_status: partPhotos + 'output_2_edff9d8a-7f55-4426-af76-7935a11acdda_160x.jpg?v=1729757344',
-  detergent_left: partPhotos + '14_160x.png?v=1703064036',
-  scale_inhibitor_left: partPhotos + 'Scale_inhibitor_160x.jpg?v=1762325107',
-};
+const photographs = new Set(['robot', 'dock', 'main_brush_left', 'side_brush_left', 'filter_left',
+  'mop_pad_left', 'dust_bag_status', 'detergent_left', 'scale_inhibitor_left']);
 function el(tag, cls, text) {
   const node = document.createElement(tag);
   if (cls) node.className = cls;
@@ -184,35 +173,39 @@ export function resourceWidget(host) {
     devices.set(key, node);
   }
   const images = new Map();
+  let loading = 0;
   let model, lastSnapshot;
   function attachPhotos() {
     if (panel.hidden || model !== modelName || credit.hidden) return;
-    // A visit requests the same fixed set for this model, independently of the readings.
-    for (const [key, src] of Object.entries(photographs)) {
+    // Keep browser connections available for telemetry while the controller fills its cache.
+    for (const key of photographs) {
+      if (loading >= 3) break;
       if (images.has(key)) continue;
       const img = el('img');
       img.alt = '';
-      img.referrerPolicy = 'no-referrer';
       img.decoding = 'async';
-      const failed = () => { images.set(key, null); img.remove(); };
-      img.addEventListener('error', failed, { once: true });
-      img.addEventListener('load', async () => {
-        try { await img.decode(); img.dataset.loaded = ''; }
-        catch { failed(); }
-      }, { once: true });
+      img.onload = img.onerror = event => {
+        img.onload = img.onerror = null;
+        loading--;
+        if (event.type === 'load') img.dataset.loaded = '';
+        else { images.set(key, null); img.remove(); }
+        attachPhotos();
+      };
+      loading++;
       images.set(key, img);
-      img.src = src;
+      img.src = './photos/v1/' + key + '.webp';
     }
     for (const slot of host.querySelectorAll('[data-photo]')) {
       const img = images.get(slot.dataset.photo);
       if (img && img.parentElement !== slot) slot.prepend(img);
     }
   }
-  document.addEventListener('dreame:view', event => { if (event.detail === 'resources') attachPhotos(); });
-  window.addEventListener('online', () => {
+  function revisit() {
     for (const [key, img] of images) if (!img) images.delete(key);
     attachPhotos();
-  });
+  }
+  document.addEventListener('dreame:view', event => { if (event.detail === 'resources') revisit(); });
+  window.addEventListener('online', revisit);
   return (metrics, nextModel, online, stateTitle) => {
     const snapshot = JSON.stringify([metrics, nextModel, online, stateTitle]);
     if (lastSnapshot === snapshot) return;
@@ -238,12 +231,17 @@ export function resourceWidget(host) {
       node.querySelector('.service-primary').textContent = primary || (key === 'robot' ? 'Состояние не передано' : 'Режим не передан');
       const details = status.map(row => {
         const pair = el('div');
+        if (row.attention) pair.className = 'service-attention';
         pair.append(el('dt', '', row.label), el('dd', '', reading(row)));
         return pair;
       });
-      node.querySelector('.service-status').replaceChildren(...details);
+      const group = host.querySelector('[data-resource-details="' + key + '"]');
+      group.hidden = !details.length;
+      group.querySelector('dl').replaceChildren(...details);
     }
-    host.querySelector('.service-equipment').hidden = !hasData || [...devices.values()].every(node => node.hidden);
+    const visibleDevices = [...devices.values()].filter(node => !node.hidden).length;
+    host.querySelector('.service-equipment').hidden = !hasData || !visibleDevices;
+    host.querySelector('#resource-equipment-title').textContent = visibleDevices === 1 ? 'Оборудование' : 'Робот и станция';
     stats.replaceChildren(...statistics.map(row => {
       const tile = el('div', 'service-total');
       const dt = el('dt');
@@ -253,7 +251,7 @@ export function resourceWidget(host) {
     }));
     stats.closest('.service-card').hidden = !statistics.length;
     const missing = model === modelName && hasData ? Object.keys(supplies).filter(key =>
-      Object.hasOwn(photographs, key) && !items.some(item => item.key === key)) : [];
+      photographs.has(key) && !items.some(item => item.key === key)) : [];
     reference.hidden = !missing.length;
     reference.querySelector('ul').replaceChildren(...missing.map(key => {
       const [, label, icon] = supplies[key];

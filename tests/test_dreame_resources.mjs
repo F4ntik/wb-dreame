@@ -16,7 +16,9 @@ test('исчерпанные расходники и явные проблемы
   assert.equal(byKey.get('sensor_dirty_left').action, 'Очистить');
   assert.equal(byKey.get('dust_bag_status').action, 'Установить мешок');
   assert.equal(byKey.get('dirty_water_tank_status').value, 'Полон или не установлен');
-  assert.deepEqual(equipment.dock.status.map(i => i.key), ['clean_water_tank_status']);
+  assert.deepEqual(equipment.dock.status.map(i => [i.key, i.attention]), [
+    ['clean_water_tank_status', false], ['dirty_water_tank_status', true],
+  ]);
 });
 
 test('проценты и время сохраняют единицы, прогноз не подменяет дни Dreame', () => {

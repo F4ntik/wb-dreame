@@ -11,6 +11,17 @@
   <script type="module" src="./schedules.js"></script>
 </head>
 <body>
+  <template id="map-robot-art">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" aria-hidden="true">
+      <path d="m25.85 6.3 2.05-4.05m-2.05 4.05 4.1 1.75" fill="none" stroke="#717D76" stroke-width=".9" stroke-linecap="round"/>
+      <circle cx="16" cy="16" r="14.55" fill="#FAFAF7" stroke="#4E5855" stroke-width="1.05"/>
+      <path d="M2.45 16.65a13.55 13.55 0 0 1 27.1 0" fill="none" stroke="#8D9790" stroke-width=".72"/>
+      <path d="M1.95 13.4h3.3l1.3-1h18.9l1.3 1h3.3" fill="none" stroke="#B2B9B1" stroke-width=".7"/>
+      <rect x="13.8" y="5.1" width="4.4" height="1.1" rx=".55" fill="none" stroke="#ABB2A9" stroke-width=".5"/>
+      <circle cx="16" cy="12.75" r="4.55" fill="#F0EFE9" stroke="#79837B" stroke-width=".74"/>
+      <circle cx="16" cy="12.75" r="3.45" fill="#D7BE92" stroke="#9D845D" stroke-width=".7"/>
+    </svg>
+  </template>
   <div class="shell">
     <aside class="sidebar" aria-label="Пылесос и навигация">
       <header class="device-heading">
@@ -36,7 +47,10 @@
     <div id="view-map" role="tabpanel" aria-labelledby="tab-map">
       <h2 id="map-title" class="sr-only">Карта уборки</h2>
     <section class="summary" aria-label="Состояние пылесоса">
-      <div><span class="stat-icon" data-icon="robot" aria-hidden="true"></span><div><span>Состояние</span><strong id="robot-state">—</strong></div></div>
+      <div><span class="stat-icon" id="activity-icon" data-icon="robot" aria-hidden="true"></span><div><span>Состояние</span><strong id="robot-state">—</strong>
+        <span id="mop-drying-label" hidden>Сушка швабр</span>
+        <div id="mop-drying" class="mop-drying" hidden><progress max="100" aria-label="Сушка швабр"></progress><span aria-hidden="true"></span></div>
+      </div></div>
       <div><span class="stat-icon" data-icon="charge" aria-hidden="true"></span><div><span>Заряд</span><div class="battery-reading"><strong id="battery">—</strong><span class="battery-gauge" aria-hidden="true"><span id="battery-fill"></span></span></div></div></div>
       <div><span class="stat-icon" data-icon="dock" aria-hidden="true"></span><div><span>Положение</span><strong id="dock-state">—</strong></div></div>
     </section>
@@ -95,7 +109,7 @@
         </div>
         <div id="map" class="map" aria-describedby="map-hint live-position">
           <p class="muted">Карта пока недоступна</p>
-          <span id="robot-marker" class="robot-marker" aria-hidden="true" hidden></span>
+          <span id="robot-marker" class="robot-marker" role="img" aria-label="Текущее положение пылесоса" hidden></span>
           <div id="zone-measure" class="zone-measure" hidden aria-hidden="true">
             <strong id="zone-dimensions"></strong><span id="zone-floor"></span><span id="zone-warning"></span>
           </div>
@@ -171,7 +185,9 @@
           <button id="submit-job" type="submit" class="primary" disabled>Проверить задание</button>
           <p id="submit-hint" class="muted field-hint">Робот должен быть на связи.</p>
         </form>
-        <button id="job-mode" type="button" class="text-button" hidden></button>
+        <details id="job-mode" hidden>
+          <summary>CleanGenius <span id="job-mode-value"></span></summary>
+        </details>
         <div id="job-result" class="job-result" role="status" hidden></div>
         <button id="forget-request" class="forget-request" type="button" hidden>Сбросить ожидающий запрос</button>
         <p id="last-job" class="last-job muted" hidden></p>
@@ -244,19 +260,21 @@
           <div class="service-aside">
             <section class="service-card service-equipment" aria-labelledby="resource-equipment-title" hidden>
               <h3 id="resource-equipment-title">Робот и станция</h3>
-              <div data-resource-device="robot">
-                <div class="service-device-heading">
+              <div class="service-products">
+                <div data-resource-device="robot">
                   <span class="service-device-photo service-photo" aria-hidden="true"></span>
                   <div><h4>Робот-пылесос</h4><p class="service-primary"></p></div>
                 </div>
-                <dl class="service-status"></dl>
-              </div>
-              <div data-resource-device="dock">
-                <div class="service-device-heading">
+                <div data-resource-device="dock">
                   <span class="service-device-photo service-photo" aria-hidden="true"></span>
                   <div><h4>Станция</h4><p class="service-primary"></p></div>
                 </div>
-                <dl class="service-status"></dl>
+              </div>
+              <div class="service-details" data-resource-details="robot" hidden>
+                <h4>На роботе</h4><dl class="service-status"></dl>
+              </div>
+              <div class="service-details" data-resource-details="dock" hidden>
+                <h4>На станции</h4><dl class="service-status"></dl>
               </div>
             </section>
             <section class="service-card service-statistics" aria-labelledby="resource-stats-title" hidden>
@@ -353,9 +371,9 @@
       <section class="card settings-card" aria-label="Настройки робота">
         <h3>Параметры робота</h3>
         <div id="cleaning-mode" hidden>
-          <p id="cleaning-mode-readonly" class="field-hint" hidden></p>
+          <p id="cleaning-mode-readonly" class="field-hint" role="status" hidden></p>
           <div id="cleaning-mode-options"></div>
-          <p class="muted field-hint">Этот режим сохраняется в пылесосе и влияет на следующие уборки.</p>
+          <p class="muted field-hint">Общий режим робота для следующих уборок.</p>
         </div>
 
         <dl id="settings" class="detail-content records"></dl>

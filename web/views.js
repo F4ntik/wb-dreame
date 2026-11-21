@@ -27,6 +27,11 @@ const strokes = {
   dry: 'M4 8h12a2 2 0 1 0-2-2 M4 12h15a2 2 0 1 1-2 2 M4 16h7a2 2 0 1 1-2 2',
 };
 const ns = 'http://www.w3.org/2000/svg';
+export const robotToDockScale = 18.6 / 24;
+export function mapRobotIcon() {
+  return document.getElementById('map-robot-art').content.firstElementChild.cloneNode(true);
+}
+
 export function glyph(name) {
   const svg = document.createElementNS(ns, 'svg');
   svg.setAttribute('viewBox', '0 0 24 24');

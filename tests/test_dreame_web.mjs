@@ -200,7 +200,10 @@ test('top-level live overlays override saved overlays, including explicit absenc
     { kind: 'path', points: [[2, -3], [4, -5]] }, { kind: 'robot', points: [[4, -5]] },
   ]);
   assert.deepEqual(mapOverlays([], saved), []);
-  assert.deepEqual(mapOverlays(undefined, saved), [{ kind: 'robot', points: [[11, -12]] }]);
+  const wall = { kind: 'wall', points: [[3, 4], [4, 5]] };
+  assert.deepEqual(mapOverlays(undefined, [...saved, wall]), [{ kind: 'wall', points: [[3, -4], [4, -5]] }]);
+  assert.deepEqual(mapOverlays(fresh, saved, 'docked'), [{ kind: 'path', points: [[2, -3], [4, -5]] }]);
+  assert.deepEqual(mapOverlays(fresh, saved, 'returning').at(-1), { kind: 'robot', points: [[4, -5]] });
 });
 
 test('coverage prefers Dreame cells and estimates only wet sections over a calibrated floor', () => {

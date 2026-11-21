@@ -18,7 +18,7 @@ HISTORY_STATUS = {
 
 BASE_STATES = (
     (P.SELF_WASH_BASE_STATUS, "Станция", {
-        0: "Ожидание", 1: "Моет салфетки", 2: "Сушит салфетки", 3: "Робот возвращается на мойку",
+        0: "Ожидание", 1: "Моет швабры", 2: "Сушит швабры", 3: "Робот возвращается на мойку",
         4: "Пауза", 5: "Промывка и подача воды",
         6: "Робот возвращается для слива", 7: "Робот возвращается для сушки",
     }),
@@ -207,7 +207,7 @@ def read_details(device, *, current=None):
     for prop, label, labels in BASE_STATES:
         _add(metrics, label, _choice(get(prop), labels), key=prop)
     if get(P.SELF_WASH_BASE_STATUS) == 2:
-        _add(metrics, "Прогресс сушки салфеток", _number(get(P.DRYING_PROGRESS), 100), "%", key=P.DRYING_PROGRESS)
+        _add(metrics, "Прогресс сушки швабр", _number(get(P.DRYING_PROGRESS), 100), "%", key=P.DRYING_PROGRESS)
     for prop, label, unit in TOTALS:
         _add(metrics, label, _number(get(prop)), unit, key=prop)
     history, available = _history(getattr(device.status, "_cleaning_history", None), _number(get(P.CLEANING_COUNT)))

@@ -1,4 +1,4 @@
-import { glyph } from './views.js';
+import { glyph, mapRobotIcon, robotToDockScale } from './views.js';
 import { roomStatusLabels } from './controls.js';
 const day = new Intl.DateTimeFormat('ru-RU', { dateStyle: 'medium', timeStyle: 'short' });
 const recordDay = new Intl.DateTimeFormat('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' });
@@ -385,11 +385,16 @@ export function historyView(coverageSwitches) {
       : `${replayModes[mode]}. Показаны записанные точки. Темп условный.`;
   }
 
-  function showReplay(sections) {
+  function showReplay(sections, hardwareWidth) {
     frames = archiveRoute(sections);
     if (frames.length < 2) return;
     routeMarker = element('span', undefined, 'history-route-marker');
-    routeMarker.setAttribute('aria-hidden', 'true');
+    routeMarker.setAttribute('role', 'img');
+    routeMarker.setAttribute('aria-label', 'Положение пылесоса на записанном маршруте');
+    if (Number.isFinite(hardwareWidth) && hardwareWidth > 0 && hardwareWidth <= 100) {
+      routeMarker.style.width = `${hardwareWidth * robotToDockScale}%`;
+    }
+    routeMarker.append(mapRobotIcon());
     mapLayer.append(routeMarker);
     scrub.max = String(frames.length - 1);
     play.disabled = reducedMotion.matches;
@@ -582,7 +587,7 @@ export function historyView(coverageSwitches) {
           return element('li', parts.join(' · '));
         }));
         mapInfo('');
-        showReplay(payload.route_sections);
+        showReplay(payload.route_sections, payload.hardware_width_percent);
         showObstacles(archiveObstacles(payload.obstacles));
       }, { once: true });
       image.addEventListener('load', () => { if (current()) fitMap(); });

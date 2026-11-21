@@ -1,5 +1,4 @@
 import json
-import re
 import os
 import socket
 import stat
@@ -58,14 +57,26 @@ class GateServiceTest(unittest.TestCase):
                 policy = response.getheader("Content-Security-Policy")
                 directives = dict(part.strip().split(" ", 1) for part in policy.split(";"))
                 self.assertEqual(directives["connect-src"], "'self'")
-                photo_root = "https://api.ru.dreametech.com/media/catalog/product/cache/74c1057f7991b4edb2bc7bdaa94de933/s/"
-                sources = set(directives["img-src"].split())
-                parts = {source for source in sources if source.startswith("https://fr.dreametech.com/cdn/shop/files/")}
-                self.assertEqual(len(parts), 7)
-                self.assertTrue(all(re.fullmatch(r"https://fr\.dreametech\.com/cdn/shop/files/[\w.-]+_160x\.(?:png|jpg)", path) for path in parts))
-                self.assertEqual(sources - parts, {
-                    "'self'", "data:", photo_root + "wk3xYixrkQPQ5pr/download/04.jpg", photo_root + "EPRqR47CysdkPBc/download/05.jpg",
-                })
+                self.assertEqual(directives["img-src"], "'self' data:")
+                self.assertEqual(response.getheader("Cache-Control"), "no-store")
+                with patch.object(server.photos, "get", return_value=b"fixture") as fetch:
+                    self.assertEqual(call("GET", "/dreame/photos/v1/unknown.webp")[0], 404)
+                    self.assertEqual(call("GET", "/dreame/photos/v1/../account.webp")[0], 404)
+                    client.request("GET", "/dreame/photos/v1/robot.webp")
+                    photo = client.getresponse()
+                    self.assertEqual((photo.status, photo.read()), (200, b"fixture"))
+                    self.assertEqual(photo.getheader("Content-Type"), "image/webp")
+                    self.assertEqual(photo.getheader("Cache-Control"), "private, max-age=31536000, immutable")
+                    fetch.assert_called_once_with("robot")
+                server.photos.directory = directory / "photos"
+                server.photos.directory.mkdir()
+                (server.photos.directory / "dock.webp").write_bytes(b"")
+                with patch("product_photos._download", side_effect=OSError("offline")):
+                    client.request("GET", "/dreame/photos/v1/dock.webp")
+                    unavailable = client.getresponse()
+                    unavailable.read()
+                    self.assertEqual(unavailable.status, 503)
+                    self.assertEqual(unavailable.getheader("Cache-Control"), "no-store")
             finally:
                 client.close()
             self.assertEqual(json.loads(call("GET", "/dreame/api/state")[1]), {"online": False})

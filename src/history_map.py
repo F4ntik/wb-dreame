@@ -312,6 +312,7 @@ def render_history(map_data):
     if base_size + len(coverage) + len(room_layer) > MAX_SVG_BYTES:
         room_layer = ""
     return {"svg": prefix + room_layer + coverage_start + coverage + suffix,
+            "hardware_width_percent": 100 * dock_width / svg_width,
             "has_path": bool(route), "has_coverage": has_coverage,
             "coverage_source": coverage_source, "route_sections": route_sections, "room_statuses": room_statuses,
             "room_observations": observations}

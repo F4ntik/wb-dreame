@@ -97,9 +97,9 @@ class DetailsTest(unittest.TestCase):
         data = read_details(fixture(properties, [None], Mode.MOPPING_AFTER_SWEEPING))
         self.assertFalse(data["history_available"])
         self.assertEqual({row["label"]: (row["value"], row.get("unit")) for row in data["metrics"]}, {
-            "Станция": ("Сушит салфетки", None),
+            "Станция": ("Сушит швабры", None),
             "Мешок для мусора": ("Требует проверки", None),
-            "Прогресс сушки салфеток": (0, "%"),
+            "Прогресс сушки швабр": (0, "%"),
             "Всего уборок": (24, None),
             "Общая площадь уборок": (108, "м²"),
             "Общее время уборок": (220, "мин"),

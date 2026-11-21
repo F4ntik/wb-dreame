@@ -8,16 +8,8 @@ from pathlib import Path
 from shutil import chown
 from urllib.parse import urlsplit
 
-from config import Refused
-
-DREAME_PHOTOS = "https://api.ru.dreametech.com/media/catalog/product/cache/74c1057f7991b4edb2bc7bdaa94de933/s/"
-
-ACCESSORY_FILES = (
-    "RollerBrush-_02_1_160x.jpg", "output_160x.jpg", "output_7ecbea13-05d4-4e0e-8147-3d161e37029a_160x.jpg",
-    "1_d09c295f-0c12-4a23-9a99-50c7e22121d5_160x.jpg", "output_2_edff9d8a-7f55-4426-af76-7935a11acdda_160x.jpg",
-    "14_160x.png", "Scale_inhibitor_160x.jpg",
-)
-ACCESSORY_PHOTOS = " ".join("https://fr.dreametech.com/cdn/shop/files/" + name for name in ACCESSORY_FILES)
+from config import STATE, Refused
+from product_photos import SOURCES, ProductPhotos
 
 
 class WebConflict(Exception):
@@ -32,19 +24,17 @@ class Handler(BaseHTTPRequestHandler):
         super().setup()
         self.connection.settimeout(8)
 
-    def reply(self, code, data, mime="application/json; charset=utf-8"):
+    def reply(self, code, data, mime="application/json; charset=utf-8", cache="no-store"):
         if not isinstance(data, bytes):
             data = json.dumps(data, ensure_ascii=False, allow_nan=False, separators=(",", ":")).encode()
         self.send_response(code)
         self.send_header("Content-Type", mime)
         self.send_header("Content-Length", str(len(data)))
-        self.send_header("Cache-Control", "no-store")
+        self.send_header("Cache-Control", cache)
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("Referrer-Policy", "no-referrer")
         self.send_header("Content-Security-Policy", "default-src 'self'; connect-src 'self'; object-src 'none'; "
-                         "frame-ancestors 'self'; base-uri 'none'; style-src 'self' 'unsafe-inline'; img-src 'self' data: "
-                         f"{DREAME_PHOTOS}wk3xYixrkQPQ5pr/download/04.jpg "
-                         f"{DREAME_PHOTOS}EPRqR47CysdkPBc/download/05.jpg {ACCESSORY_PHOTOS}")
+                         "frame-ancestors 'self'; base-uri 'none'; style-src 'self' 'unsafe-inline'; img-src 'self' data:")
         self.send_header("X-Frame-Options", "SAMEORIGIN")
         self.end_headers()
         self.wfile.write(data)
@@ -58,6 +48,15 @@ class Handler(BaseHTTPRequestHandler):
             return
         if path == "/dreame/api/state":
             self.reply(200, self.server.bridge.web_state())
+            return
+        photo = re.fullmatch(r"/dreame/photos/v1/([a-z_]+)\.webp", path)
+        if photo and photo[1] in SOURCES:
+            try:
+                data = self.server.photos.get(photo[1])
+            except OSError:
+                self.reply(503, {"message": "Фотография пока недоступна"})
+            else:
+                self.reply(200, data, "image/webp", "private, max-age=31536000, immutable")
             return
         if path == "/dreame/api/entrance":
             try:
@@ -179,6 +178,7 @@ def start_ui(bridge, directory=Path("/usr/share/wb-mqtt-dreame/web"),
     server.daemon_threads = True
     server.bridge = bridge
     server.files = files
+    server.photos = ProductPhotos(STATE / "product-photos-v1")
     try:
         server.server_bind()
         chown(socket_path, group="www-data")

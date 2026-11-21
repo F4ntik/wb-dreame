@@ -12,6 +12,11 @@ if [ "$1" = purge ]; then
             rm -f "$d/state/session.json" "$d/state/jobs.sqlite3" "$d/state/jobs.sqlite3-journal" "$d/state/underlay-alignment.json" "$d/state/underlay-footprint.json"
             rm -f "$d/state/mqtt-owner.json" "$d/state/mqtt-legacy-preview17"
             rm -f "$d/state/room-names.json" "$d/state/entrance.json"
+            photos="$d/state/product-photos-v1"
+            if [ -d "$photos" ] && [ ! -L "$photos" ]; then
+                rm -f "$photos"/*.webp "$photos"/*.tmp
+                rmdir "$photos" 2>/dev/null || :
+            fi
             rmdir "$d/state" 2>/dev/null || :
         fi
         rmdir "$d" 2>/dev/null || :
