@@ -6,7 +6,18 @@ const form = find('charging-form');
 const fieldset = form.querySelector('fieldset');
 const save = form.querySelector('button[type="submit"]');
 const { enabled, start, end } = form.elements;
+const cleaningForm = find('cleaning-form');
+const cleaningList = find('cleaning-list');
+const cleaningFields = find('cleaning-fields');
+const cleaningDays = find('cleaning-days');
+const cleaningSave = cleaningForm.querySelector('button[type="submit"]');
+const cleaningDelete = find('cleaning-delete');
+const weekdays = [...cleaningForm.elements.weekday];
+const dayNames = ['Вс', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'];
 let current = null;
+let cleaning = null;
+let editing = null;
+let editOpener = null;
 let writable = false;
 let busy = false;
 let opened = false;
@@ -15,6 +26,8 @@ function updateControls() {
   refresh.disabled = busy;
   fieldset.disabled = busy || !writable;
   save.disabled = !current || (current.enabled === enabled.checked && current.start === start.value && current.end === end.value);
+  cleaningForm.querySelector('fieldset').disabled = busy || !writable;
+  for (const button of cleaningList.querySelectorAll('button')) button.disabled = busy || !writable;
 }
 
 function showCharging(data) {
@@ -35,24 +48,54 @@ function showCharging(data) {
 function recurrence(task) {
   if (task.once) return 'Один раз';
   if (task.days === 7) return 'Каждый день';
-  if (!task.days) return 'С повтором';
-  const day = ['день', 'дня', 'дня', 'дня', 'дней', 'дней'][task.days - 1];
-  return `${task.days} ${day} в неделю`;
+  return weekdays.filter(input => task.weekdays?.[input.value] === '1')
+    .map(input => dayNames[input.value]).join(', ') || 'Дни уточните в Dreamehome';
 }
 
 function showCleaning(data) {
   find('cleaning').hidden = false;
-  const list = find('cleaning-list');
-  list.replaceChildren();
-  list.hidden = !data?.tasks?.length;
-  const edit = 'Создать, изменить или удалить расписание можно в Dreamehome.';
-  find('cleaning-note').textContent = data?.reason || (list.hidden ? `Сохранённых уборок по расписанию нет. ${edit}` : edit);
+  cleaning = data;
+  cleaningForm.hidden = true;
+  editing = null;
+  editOpener = null;
+  cleaningList.replaceChildren();
+  cleaningList.hidden = !data?.tasks?.length;
+  const create = 'Новые задания, комнаты и режим уборки настраиваются в Dreamehome.';
+  const hint = !data?.can_edit ? 'Изменения доступны в Dreamehome.'
+    : !writable ? 'Для изменений включите управление в настройках драйвера.' : create;
+  find('cleaning-note').textContent = data?.reason || (cleaningList.hidden ? `Заданий пока нет. ${create}` : hint);
   for (const task of data?.tasks || []) {
     const item = document.createElement('li');
     const state = task.invalid ? 'Недействительно' : task.enabled ? 'Включено' : 'Выключено';
-    item.textContent = `${task.time} · ${recurrence(task)} · ${state} (№ ${task.id})`;
-    list.append(item);
+    const description = `${task.time} · ${recurrence(task)} · ${state} (№ ${task.id})`;
+    item.textContent = description;
+    if (writable && (task.editable || data.can_delete)) {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.dataset.task = task.id;
+      button.textContent = task.editable ? 'Изменить' : 'Управлять';
+      button.setAttribute('aria-label', `${button.textContent} задание № ${task.id} на ${task.time}`);
+      button.addEventListener('click', () => editCleaning(task, button));
+      item.append(' ', button);
+    }
+    cleaningList.append(item);
   }
+}
+
+function editCleaning(task, button) {
+  editing = task;
+  editOpener = button;
+  find('cleaning-title').textContent = `Задание № ${task.id} на ${task.time}`;
+  cleaningFields.hidden = !task.editable;
+  find('cleaning-edit-note').hidden = task.editable;
+  cleaningSave.hidden = !task.editable;
+  cleaningDelete.hidden = !cleaning.can_delete;
+  cleaningDays.hidden = task.once;
+  cleaningForm.elements.time.value = task.time;
+  cleaningForm.elements.enabled.checked = task.enabled;
+  for (const input of weekdays) input.checked = task.weekdays?.[input.value] === '1';
+  cleaningForm.hidden = false;
+  (task.editable ? cleaningForm.elements.time : cleaningDelete).focus();
 }
 
 function message(text, error = false) {
@@ -117,10 +160,7 @@ form.addEventListener('submit', async event => {
   updateControls();
   message('Сохраняем интервал зарядки…');
   try {
-    const data = await request({
-      method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Dreame-Request': '1' },
-      body: JSON.stringify({ revision: current.revision, enabled: enabled.checked, start: start.value, end: end.value }),
-    });
+    const data = await saveSchedule({ revision: current.revision, enabled: enabled.checked, start: start.value, end: end.value });
     showCharging(data.charging);
     message(data.message);
   } catch (error) {
@@ -130,4 +170,59 @@ form.addEventListener('submit', async event => {
     busy = false;
     updateControls();
   }
+});
+
+function saveSchedule(payload) {
+  return request({
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Dreame-Request': '1' },
+    body: JSON.stringify(payload),
+  });
+}
+
+async function saveCleaning(operation, fields = {}) {
+  const taskId = editing.id;
+  busy = true;
+  updateControls();
+  message(operation === 'delete' ? 'Удаляем задание…' : 'Сохраняем задание уборки…');
+  try {
+    const data = await saveSchedule({ kind: 'cleaning', operation, id: taskId, revision: cleaning.revision, ...fields });
+    showCleaning(data.cleaning);
+    message(data.message);
+  } catch (error) {
+    writable = false;
+    message(error.message, true);
+  } finally {
+    busy = false;
+    updateControls();
+    (cleaningList.querySelector(`button[data-task="${taskId}"]:not(:disabled)`) || refresh).focus();
+  }
+}
+
+cleaningForm.addEventListener('submit', event => {
+  event.preventDefault();
+  if (!editing?.editable || !writable || busy) return;
+  const fields = { enabled: cleaningForm.elements.enabled.checked, time: cleaningForm.elements.time.value };
+  if (!editing.once) {
+    const mask = Array(7).fill('0');
+    for (const input of weekdays) if (input.checked) mask[input.value] = '1';
+    fields.weekdays = mask.join('');
+    if (!fields.weekdays.includes('1')) {
+      message('Выберите хотя бы один день недели.', true);
+      weekdays[0].focus();
+      return;
+    }
+  }
+  saveCleaning('update', fields);
+});
+
+cleaningDelete.addEventListener('click', () => {
+  if (!editing || !writable || busy || !cleaning.can_delete) return;
+  if (window.confirm(`Удалить задание № ${editing.id} на ${editing.time}?`)) saveCleaning('delete');
+});
+
+find('cleaning-cancel').addEventListener('click', () => {
+  cleaningForm.hidden = true;
+  editing = null;
+  editOpener?.focus();
+  editOpener = null;
 });

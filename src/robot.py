@@ -12,6 +12,7 @@ from overlays import read_overlays
 from jobs import CLEANING, blocking_error, check_observation_age
 from panel import map_snapshot
 from preferences import cleangenius_value, offered, property_write_permitted
+from schedules import delete_write_permitted
 from vendor.device import DreameVacuumDevice
 from vendor.protocol import DreameVacuumDreameHomeCloudProtocol
 from vendor.types import DreameVacuumAction as A, DreameVacuumAutoSwitchProperty as AS, DreameVacuumStatus as DS
@@ -48,7 +49,7 @@ def guard(method, parameters):
         pair = (parameters.get("siid"), parameters.get("aiid"))
         if pair in READ_ACTIONS:
             return
-        authorized_write = pair in ALLOWED_ACTION.get()
+        authorized_write = pair in ALLOWED_ACTION.get() or delete_write_permitted(method, parameters)
     if authorized_write:
         verify = WRITE_AUTHORIZATION.get()
         if verify is not None and not verify():

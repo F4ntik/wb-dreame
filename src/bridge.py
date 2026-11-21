@@ -16,7 +16,7 @@ from preferences import apply_preference
 from panel import interactive_map, map_snapshot, render_map_frame
 from robot import TRACKING_STATES, Robot, check_writes_with
 from room_names import ROOM_CATALOG, RoomNames, room_aliases
-from schedules import read_schedules, save_charging_schedule
+from schedules import read_schedules, save_charging_schedule, save_cleaning_schedule
 from underlay import Underlay
 from webui import WebConflict, start_ui
 
@@ -236,6 +236,9 @@ class Bridge:
             if request is None:
                 return {**read_schedules(self.cloud), "allow_commands": self.commands_enabled()}
             with check_writes_with(self.commands_enabled):
+                if request.get("kind") == "cleaning":
+                    cleaning = save_cleaning_schedule(self.cloud, request)
+                    return {"cleaning": cleaning, "message": "Расписание уборок подтверждено роботом"}
                 charging = save_charging_schedule(self.cloud, request)
             return {"charging": charging, "message": "Интервал зарядки подтверждён роботом"}
         finally:

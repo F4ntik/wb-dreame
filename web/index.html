@@ -219,6 +219,35 @@
             <h3>Расписание уборок</h3>
             <p id="schedules-cleaning-note" class="muted field-hint"></p>
             <ul id="schedules-cleaning-list" hidden></ul>
+            <form id="schedules-cleaning-form" hidden>
+              <fieldset>
+                <legend id="schedules-cleaning-title">Задание уборки</legend>
+                <div id="schedules-cleaning-fields">
+                  <p>
+                    <label>Время пылесоса <input type="time" name="time" required></label>
+                    <label><input type="checkbox" name="enabled"> Выполнять уборку</label>
+                  </p>
+                  <fieldset id="schedules-cleaning-days">
+                    <legend>Дни недели</legend>
+                    <p>
+                      <label><input type="checkbox" name="weekday" value="1"> Пн</label>
+                      <label><input type="checkbox" name="weekday" value="2"> Вт</label>
+                      <label><input type="checkbox" name="weekday" value="3"> Ср</label>
+                      <label><input type="checkbox" name="weekday" value="4"> Чт</label>
+                      <label><input type="checkbox" name="weekday" value="5"> Пт</label>
+                      <label><input type="checkbox" name="weekday" value="6"> Сб</label>
+                      <label><input type="checkbox" name="weekday" value="0"> Вс</label>
+                    </p>
+                  </fieldset>
+                </div>
+                <p id="schedules-cleaning-edit-note" class="muted field-hint" hidden>Измените параметры этого задания в Dreamehome.</p>
+                <p>
+                  <button type="submit">Сохранить уборку</button>
+                  <button id="schedules-cleaning-delete" type="button">Удалить задание</button>
+                  <button id="schedules-cleaning-cancel" type="button">Закрыть</button>
+                </p>
+              </fieldset>
+            </form>
           </section>
         </div>
       </details>
