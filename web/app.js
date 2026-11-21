@@ -18,9 +18,12 @@ const form = byId('job-form');
 const zoneFields = ['zone-x1', 'zone-y1', 'zone-x2', 'zone-y2'].map(byId);
 const zoneBadge = byId('zone-measure');
 const zoneSummary = byId('zone-measure-summary');
+const zoneTools = byId('zone-tools');
 const zoneList = byId('zone-list');
 const addZone = byId('add-zone');
 const removeZone = byId('remove-zone');
+const removeMapZone = byId('remove-map-zone');
+const undoZoneRemoval = byId('undo-zone-removal');
 const clearZone = byId('clear-zone');
 const zonePins = make('div', undefined, 'zone-pins');
 zonePins.setAttribute('aria-hidden', 'true');
@@ -110,6 +113,7 @@ let target = 'all';
 const rooms = new Set();
 let zones = [];
 let selectedZone = -1;
+let removedZone = null;
 let drag = null;
 let zoneEpoch = 0;
 let confirmingZone = false;
@@ -174,6 +178,7 @@ function replaceZoneDraft(next) {
   if (!rectangles) return false;
   stopZoneDrag();
   zones = rectangles;
+  removedZone = null;
   selectZone(zones.length - 1);
   zoneEpoch++;
   if (confirmingZone && modal.open) modal.close('cancel');
@@ -236,7 +241,7 @@ function updateOverlay() {
         rectangle.setAttribute(key, value);
       }
       rectangles.push(rectangle);
-      if (!matrix) return;
+      if (!matrix || Math.min((x2 - x1) * Math.hypot(matrix.a, matrix.b), (y2 - y1) * Math.hypot(matrix.c, matrix.d)) < 35) return;
       const point = new DOMPoint(x1 + (x2 - x1) * .2, -y2 + (y2 - y1) * .2).matrixTransform(matrix);
       const pin = make('span', String(index + 1), 'zone-pin');
       pin.dataset.invalid = String(invalid);
@@ -249,6 +254,7 @@ function updateOverlay() {
   zonePins.replaceChildren(...pins);
   zoneBadge.hidden = !zone;
   zoneHandles.hidden = !zone;
+  removeMapZone.hidden = !zone || !matrix || Boolean(drag);
   zoneSummary.hidden = !zone || Boolean(drag);
   if (!zone) return;
   const [x1, y1, x2, y2] = zone;
@@ -264,13 +270,13 @@ function updateOverlay() {
   if (!matrix) return;
   const corners = [[x1, -y1], [x1, -y2], [x2, -y1], [x2, -y2]]
     .map(([x, y]) => new DOMPoint(x, y).matrixTransform(matrix));
-  positionZoneHandles(corners, host);
   const margin = 7;
   const centreX = (Math.min(...corners.map(point => point.x)) + Math.max(...corners.map(point => point.x))) / 2 - host.left;
   const top = Math.min(...corners.map(point => point.y)) - host.top;
   const x = Math.max(margin, Math.min(host.width - zoneBadge.offsetWidth - margin, centreX - zoneBadge.offsetWidth / 2));
   const y = Math.max(margin, Math.min(host.height - zoneBadge.offsetHeight - margin, top - zoneBadge.offsetHeight - margin));
   zoneBadge.style.transform = `translate(${x}px, ${y}px)`;
+  positionZoneHandles(corners, host);
 }
 
 function positionZoneHandles([first, upper, right, last], host) {
@@ -281,17 +287,19 @@ function positionZoneHandles([first, upper, right, last], host) {
   // Keep all handles reachable when either side is very short on screen.
   const [xx, xy] = offset(right.x - first.x, right.y - first.y);
   const [yx, yy] = offset(upper.x - first.x, upper.y - first.y);
+  const extentX = Math.abs(xx) + Math.abs(yx);
+  const extentY = Math.abs(xy) + Math.abs(yy);
   const fit = (value, size, extent) => {
-    const inset = Math.min(size / 2, extent + 8);
+    const inset = Math.min(size / 2, extent + 12);
     return Math.max(inset, Math.min(size - inset, value));
   };
-  const centreX = fit((first.x + last.x) / 2 - host.left - mapHost.clientLeft,
-    mapHost.clientWidth, Math.abs(xx) + Math.abs(yx));
-  const centreY = fit((first.y + last.y) / 2 - host.top - mapHost.clientTop,
-    mapHost.clientHeight, Math.abs(xy) + Math.abs(yy));
+  const width = mapHost.clientWidth;
+  const height = mapHost.clientHeight;
+  const centreX = fit((first.x + last.x) / 2 - host.left - mapHost.clientLeft, width, extentX);
+  const centreY = fit((first.y + last.y) / 2 - host.top - mapHost.clientTop, height, extentY);
   const place = (handle, x, y) => {
-    handle.style.left = `${centreX + x}px`;
-    handle.style.top = `${centreY + y}px`;
+    handle.style.left = `${fit(centreX + x, width, 0)}px`;
+    handle.style.top = `${fit(centreY + y, height, 0)}px`;
   };
   zoneCorners.forEach((handle, corner) => {
     const x = corner < 2 ? -1 : 1;
@@ -310,6 +318,22 @@ function positionZoneHandles([first, upper, right, last], host) {
   bottom.style.setProperty('--side-angle', xAngle);
   top.style.setProperty('--side-angle', xAngle);
   place(zoneMove, 0, 0);
+
+  if (removeMapZone.hidden) return;
+  const inset = removeMapZone.offsetWidth / 2 + 4;
+  const gap = inset + zoneMove.offsetWidth / 2;
+  const candidates = [[extentX + gap, 0], [-extentX - gap, 0], [0, extentY + gap], [0, -extentY - gap]];
+  const badge = zoneBadge.getBoundingClientRect();
+  const point = candidates.find(([dx, dy]) => {
+    const x = centreX + dx;
+    const y = centreY + dy;
+    const screenX = x + host.left + mapHost.clientLeft;
+    const screenY = y + host.top + mapHost.clientTop;
+    return x >= inset && x <= width - inset && y >= inset && y <= height - inset &&
+      (screenX + inset < badge.left || screenX - inset > badge.right || screenY + inset < badge.top || screenY - inset > badge.bottom);
+  });
+  // A zone filling the map leaves room for the button between the handles.
+  place(removeMapZone, ...(point ?? [(xx - yx) / 2, (xy - yy) / 2]));
 }
 
 function measureText(value) {
@@ -343,6 +367,13 @@ function renderZoneFields(drawZone) {
   addZone.disabled = !editing || zones.length >= maxZones ||
     (selectedZone >= 0 && zones[selectedZone].every(Number.isNaN));
   removeZone.disabled = !editing || selectedZone < 0;
+  removeMapZone.disabled = removeZone.disabled;
+  const removeLabel = `Удалить зону ${selectedZone + 1}`;
+  removeMapZone.setAttribute('aria-label', removeLabel);
+  removeMapZone.title = removeLabel;
+  zoneTools.hidden = !drawZone || (!zones.length && !removedZone);
+  undoZoneRemoval.hidden = !removedZone;
+  undoZoneRemoval.disabled = !editing || zones.length >= maxZones;
   clearZone.disabled = !editing || !zones.length;
   while (zoneList.children.length > zones.length) zoneList.lastElementChild.remove();
   while (zoneList.children.length < zones.length) {
@@ -377,6 +408,7 @@ function renderJob() {
   const drawZone = target === 'zone';
   if (!drawZone) stopZoneDrag();
   mapHost.dataset.mode = target;
+  mapHost.tabIndex = drawZone && map ? 0 : -1;
   byId('zone-fields').hidden = !drawZone;
   renderZoneFields(drawZone);
   byId('tuning').hidden = !editing && (target === 'all' || cleanGenius > 0);
@@ -386,8 +418,8 @@ function renderJob() {
   }
   label(byId('target-summary'), targetText());
   label(byId('map-hint'), !map ? 'Ожидаем актуальную сохранённую карту.' : drawZone
-    ? (zones.length >= maxZones ? `В задании может быть до ${maxZones} зон. Выберите зону, чтобы изменить её.`
-      : zones.length ? 'Нажмите на зону, чтобы выбрать её. Потяните за середину, сторону или угол. Проведите по свободному месту, чтобы добавить зону.'
+    ? (zones.length >= maxZones ? `В задании может быть до ${maxZones} зон. Нажмите × рядом с выбранной зоной, чтобы удалить её.`
+      : zones.length ? 'Потяните зону за середину, сторону или угол. Нажмите ×, чтобы удалить выбранную зону. Новую зону можно нарисовать на свободном месте.'
         : 'Проведите от одного угла зоны до другого или укажите координаты.') : 'Выберите комнаты на карте или в списке.');
   const order = new Map(target === 'rooms' ? [...rooms].map((id, index) => [id, index + 1]) : []);
   for (const element of [mapHost, roomList].flatMap(host => [...host.querySelectorAll('[data-room]')])) {
@@ -470,7 +502,7 @@ function replaceMap(next) {
   zoneLayer = document.createElementNS(svgNS, 'g');
   zoneLayer.setAttribute('aria-hidden', 'true');
   scene.append(overlaysGroup, zoneLayer);
-  mapHost.replaceChildren(svg, roomPins, robotMarker, zonePins, zoneBadge, zoneHandles);
+  mapHost.replaceChildren(svg, roomPins, robotMarker, zonePins, zoneBadge, zoneHandles, removeMapZone);
 }
 
 function renderLiveRoomStatuses(outcomes) {
@@ -511,7 +543,7 @@ function renderLiveRoomStatuses(outcomes) {
 }
 
 function clearAlignmentZone(message) {
-  if (!drag && !confirmingZone && !zones.length) return;
+  if (!drag && !confirmingZone && !zones.length && !removedZone) return;
   const showMessage = target === 'zone' || confirmingZone;
   replaceZoneDraft([]);
   if (message && showMessage) notify(message, false);
@@ -827,12 +859,28 @@ addZone.addEventListener('click', () => {
   renderJob();
   zoneFields[0].focus();
 });
-removeZone.addEventListener('click', () => {
-  zones.splice(selectedZone, 1);
+function deleteSelectedZone(fromMap) {
+  if (removeZone.disabled) return;
+  const [coordinates] = zones.splice(selectedZone, 1);
+  removedZone = { index: selectedZone, coordinates };
   selectZone(Math.min(selectedZone, zones.length - 1));
   zoneEpoch++;
   renderJob();
-  if (selectedZone < 0) addZone.focus();
+  if (fromMap) (selectedZone < 0 ? undoZoneRemoval : mapHost).focus({ preventScroll: true });
+  else if (selectedZone < 0) addZone.focus();
+}
+
+removeZone.addEventListener('click', () => deleteSelectedZone(false));
+removeMapZone.addEventListener('click', () => deleteSelectedZone(true));
+undoZoneRemoval.addEventListener('click', () => {
+  if (!removedZone || undoZoneRemoval.disabled) return;
+  const { index, coordinates } = removedZone;
+  zones.splice(index, 0, coordinates);
+  removedZone = null;
+  selectZone(index);
+  zoneEpoch++;
+  renderJob();
+  zoneList.children[index].firstElementChild.focus({ preventScroll: true });
 });
 clearZone.addEventListener('click', () => clearAlignmentZone());
 zoneList.addEventListener('click', event => {
@@ -848,6 +896,13 @@ roomList.addEventListener('click', event => {
 mapHost.addEventListener('click', event => {
   const room = event.target.closest('path[data-room]');
   if (mapHost.dataset.mode !== 'zone' && room) toggleRoom(room.dataset.room);
+});
+for (const control of [mapHost, zoneList]) control.addEventListener('keydown', event => {
+  if (!removeZone.disabled && event.key === 'Delete' &&
+      (control === mapHost || Number(event.target.dataset.zoneIndex) === selectedZone)) {
+    event.preventDefault();
+    if (!event.repeat) deleteSelectedZone(true);
+  }
 });
 mapHost.addEventListener('keydown', event => {
   const room = event.target.closest('path[data-room][role="button"]');
@@ -883,7 +938,7 @@ function stopZoneDrag() {
 }
 
 mapHost.addEventListener('pointerdown', event => {
-  if (mapHost.dataset.mode !== 'zone' || event.button !== 0 || !event.isPrimary || drag || busy) return;
+  if (mapHost.dataset.mode !== 'zone' || event.button !== 0 || !event.isPrimary || drag || busy || removeMapZone.contains(event.target)) return;
   const point = pointerPoint(event);
   if (!point) return;
   const { corner, side, zoneIndex } = event.target.dataset;
@@ -897,6 +952,7 @@ mapHost.addEventListener('pointerdown', event => {
   if (!start) return;
   if (editing && selectedZone !== index) selectZone(index);
   event.preventDefault();
+  mapHost.focus({ preventScroll: true });
   mapHost.setPointerCapture(event.pointerId);
   drag = { id: event.pointerId, start, index, zone, handle, preview: zone };
   renderJob();

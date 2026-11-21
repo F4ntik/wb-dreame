@@ -68,6 +68,11 @@
           <div id="zone-measure" class="zone-measure" hidden aria-hidden="true">
             <strong id="zone-dimensions"></strong><span id="zone-floor"></span><span id="zone-warning"></span>
           </div>
+          <button id="remove-map-zone" class="zone-remove" type="button" aria-label="Удалить зону" aria-keyshortcuts="Delete" hidden><span aria-hidden="true">×</span></button>
+        </div>
+        <div id="zone-tools" class="zone-tools" hidden>
+          <ol id="zone-list" class="zone-list" aria-label="Зоны на карте"></ol>
+          <button id="undo-zone-removal" type="button" hidden>Вернуть зону</button>
         </div>
         <div id="map-legend" class="map-legend" aria-label="Обозначения карты"></div>
         <div id="live-room-statuses" class="map-legend" aria-label="Статусы комнат"></div>
@@ -122,7 +127,6 @@
           </fieldset>
           <fieldset id="zone-fields" hidden>
             <legend>Зоны на карте</legend>
-            <ol id="zone-list" class="zone-list"></ol>
             <p id="zone-edit-hint" class="muted field-hint">Укажите противоположные углы зоны в координатах карты робота.</p>
             <div class="form-grid coords">
               <label>X₁<input id="zone-x1" type="number" step="1" aria-describedby="zone-edit-hint"></label>
