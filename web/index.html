@@ -90,20 +90,25 @@
             <div class="segmented">
               <label><input type="radio" name="target" value="all" checked><span>Всё</span></label>
               <label><input type="radio" name="target" value="rooms"><span>Комнаты</span></label>
-              <label><input type="radio" name="target" value="zone"><span>Зона</span></label>
+              <label><input type="radio" name="target" value="zone"><span>Зоны</span></label>
             </div>
           </fieldset>
           <fieldset id="zone-fields" hidden>
-            <legend>Координаты зоны</legend>
-            <p class="muted field-hint">Укажите противоположные углы в координатах карты робота.</p>
+            <legend>Зоны на карте</legend>
+            <ol id="zone-list" class="zone-list"></ol>
+            <p id="zone-edit-hint" class="muted field-hint">Укажите противоположные углы зоны в координатах карты робота.</p>
             <div class="form-grid coords">
-              <label>X₁<input id="zone-x1" type="number" step="1"></label>
-              <label>Y₁<input id="zone-y1" type="number" step="1"></label>
-              <label>X₂<input id="zone-x2" type="number" step="1"></label>
-              <label>Y₂<input id="zone-y2" type="number" step="1"></label>
+              <label>X₁<input id="zone-x1" type="number" step="1" aria-describedby="zone-edit-hint"></label>
+              <label>Y₁<input id="zone-y1" type="number" step="1" aria-describedby="zone-edit-hint"></label>
+              <label>X₂<input id="zone-x2" type="number" step="1" aria-describedby="zone-edit-hint"></label>
+              <label>Y₂<input id="zone-y2" type="number" step="1" aria-describedby="zone-edit-hint"></label>
             </div>
             <p id="zone-measure-summary" class="muted field-hint zone-measure-summary" aria-live="polite" hidden></p>
-            <button id="clear-zone" type="button" disabled>Очистить зону</button>
+            <div class="zone-actions">
+              <button id="add-zone" type="button">Добавить зону</button>
+              <button id="remove-zone" type="button" disabled>Удалить выбранную</button>
+              <button id="clear-zone" type="button" disabled>Очистить всё</button>
+            </div>
           </fieldset>
           <fieldset id="tuning" hidden>
             <legend>Параметры уборки</legend>

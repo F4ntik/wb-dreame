@@ -1,5 +1,6 @@
 export const svgNS = 'http://www.w3.org/2000/svg';
 export const underlayUrl = '/dreame/api/underlay';
+export const maxZones = 10;
 const actions = new Set(['start', 'pause', 'resume', 'stop', 'dock']);
 const roomId = /^\d{1,3}$/;
 
@@ -197,12 +198,31 @@ export function pointOnMap(x, svgY, bounds, clamp = false) {
 }
 
 export function zoneInBounds(corners, bounds) {
-  if (!Array.isArray(corners) || corners.length !== 4 || !corners.every(Number.isSafeInteger)) return null;
+  if (!Array.isArray(corners) || corners.length !== 4 ||
+      !Array.from(corners).every(value => Number.isInteger(value) && Math.abs(value) <= 999_999)) return null;
   const [a, b, c, d] = corners;
   const [left, bottom, right, top] = bounds;
   const [x1, y1, x2, y2] = [Math.min(a, c), Math.min(b, d), Math.max(a, c), Math.max(b, d)];
   if (x1 < left || y1 < bottom || x2 > right || y2 > top || x1 === x2 || y1 === y2) return null;
   return [x1, y1, x2, y2];
+}
+
+export function zoneListInBounds(zones, bounds) {
+  if (!Array.isArray(zones) || !zones.length || zones.length > maxZones) return null;
+  const rectangles = Array.from(zones, zone => zoneInBounds(zone, bounds));
+  return rectangles.every(Boolean) ? rectangles : null;
+}
+
+export function zoneProblem(zone, floor) {
+  if (!zone) return 'Укажите разные углы в границах карты';
+  if (!floor) return 'Нет данных о доступном поле';
+  const [x1, y1, x2, y2] = zone;
+  if (Math.min(x2 - x1, y2 - y1) <= 2 * floor.gridSize) return 'Слишком маленькая зона';
+  for (const [y, left, right] of floor.runs) {
+    if (y >= y2) break;
+    if (y + floor.gridSize > y1 && left < x2 && right > x1) return '';
+  }
+  return 'Нет доступного пола';
 }
 
 export function dragZone(zone, handle, [dx, dy], [left, bottom, right, top]) {
@@ -300,9 +320,10 @@ export function jobRequest(action, map, selection, settings, cleanGenius = null)
     if (intelligent) return { ...result, repeats: 1 };
   } else {
     if (intelligent) return null;
-    const zone = zoneInBounds(selection.zone, map.bounds);
-    if (!zone) return null;
-    result.zone = zone;
+    const zones = zoneListInBounds(Object.hasOwn(selection, 'zones') ? selection.zones : [selection.zone], map.bounds);
+    if (!zones) return null;
+    if (zones.length === 1) result.zone = zones[0];
+    else result.zones = zones;
   }
   for (const [key, min] of [['suction', 0], ['water', 1], ['repeats', 1]]) {
     const value = settings[key];

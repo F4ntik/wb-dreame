@@ -1,6 +1,6 @@
-import { adjustUnderlay, cleaningCoverage, dragZone, jobRequest, mapInfo, mapOverlays, mapView, pendingRequest, pointOnMap, preferenceInfo,
+import { adjustUnderlay, cleaningCoverage, dragZone, jobRequest, mapInfo, mapOverlays, mapView, maxZones, pendingRequest, pointOnMap, preferenceInfo,
   preferenceRequest, rectanglePaths, requestIdentity, safeMapSvg, svgNS, underlayInfo, underlayUrl, zoneHitsNoGo, zoneInBounds,
-  zoneMeasures } from './controls.js';
+  zoneListInBounds, zoneMeasures, zoneProblem } from './controls.js';
 import { initViews, resourceWidget } from './views.js';
 import { historyView } from './history.js';
 
@@ -17,7 +17,12 @@ const form = byId('job-form');
 const zoneFields = ['zone-x1', 'zone-y1', 'zone-x2', 'zone-y2'].map(byId);
 const zoneBadge = byId('zone-measure');
 const zoneSummary = byId('zone-measure-summary');
+const zoneList = byId('zone-list');
+const addZone = byId('add-zone');
+const removeZone = byId('remove-zone');
 const clearZone = byId('clear-zone');
+const zonePins = make('div', undefined, 'zone-pins');
+zonePins.setAttribute('aria-hidden', 'true');
 const zoneHandles = make('div', undefined, 'zone-handles');
 zoneHandles.setAttribute('aria-hidden', 'true');
 const zoneCorners = [0, 1, 2, 3].map(corner => {
@@ -93,7 +98,7 @@ let polling = false;
 let map = null;
 let svg = null;
 let scene = null;
-let overlay = null;
+let zoneLayer = null;
 let overlaysGroup = null;
 let overlaysKey = '';
 let features = [];
@@ -105,6 +110,8 @@ let alignmentSaving = false;
 let alignmentVersion = 0;
 let target = 'all';
 const rooms = new Set();
+let zones = [];
+let selectedZone = -1;
 let drag = null;
 let zoneEpoch = 0;
 let confirmingZone = false;
@@ -154,11 +161,34 @@ function dockStatus(data) {
 }
 
 function readZone() {
-  return zoneFields.map(field => field.value.trim() ? field.valueAsNumber : NaN);
+  return zoneFields.map(field => field.valueAsNumber);
+}
+
+function selectZone(index) {
+  selectedZone = index;
+  const region = zones[index];
+  zoneFields.forEach((field, i) => { field.value = Number.isFinite(region?.[i]) ? region[i] : ''; });
+}
+
+function jobZones() {
+  const rectangles = map && zoneListInBounds(zones, map.bounds);
+  return rectangles && rectangles.every(zone => !zoneProblem(zone, map.floor)) ? rectangles : null;
+}
+
+function replaceZoneDraft(next) {
+  const rectangles = next.length ? map && zoneListInBounds(next, map.bounds) : [];
+  if (!rectangles) return false;
+  stopZoneDrag();
+  zones = rectangles;
+  selectZone(zones.length - 1);
+  zoneEpoch++;
+  if (confirmingZone && modal.open) modal.close('cancel');
+  renderJob();
+  return true;
 }
 
 function prepared(action = 'start') {
-  return jobRequest(action, map, { kind: target, rooms, zone: readZone() },
+  return jobRequest(action, map, { kind: target, rooms, zones: action === 'start' && target === 'zone' ? jobZones() : null },
     Object.fromEntries(selects.map(id => [id, byId(id).value])), cleanGenius);
 }
 
@@ -167,22 +197,51 @@ function targetText() {
   if (target === 'rooms') return rooms.size ? [...rooms].map((id, index) => `${index + 1}. ${map.rooms[id]}`).join(' · ')
     : 'Выберите комнаты на карте или в списке.';
   if (cleanGenius > 0) return 'При включённом CleanGenius зоны недоступны. Выберите комнаты или всю квартиру.';
-  const zone = map && zoneInBounds(readZone(), map.bounds);
-  if (zone) return `Зона от (${zone[0]}, ${zone[1]}) до (${zone[2]}, ${zone[3]})`;
-  return zoneFields.some(field => field.value) ? 'Укажите два разных угла в границах карты.' : 'Выделите зону на карте или введите координаты.';
+  if (!zones.length) return 'Выделите зону на карте или введите координаты.';
+  return jobZones() ? `Зон в задании — ${zones.length}` : 'Проверьте отмеченные зоны.';
 }
 
 function updateOverlay() {
-  const zone = overlay && map && mapHost.dataset.mode === 'zone' && (drag ? drag.preview : zoneInBounds(readZone(), map.bounds));
-  if (overlay) overlay.style.display = zone ? '' : 'none';
+  const visible = zoneLayer && map && mapHost.dataset.mode === 'zone';
+  const active = drag ? drag.index : selectedZone;
+  const matrix = visible ? scene.getScreenCTM() : null;
+  const host = matrix ? mapHost.getBoundingClientRect() : null;
+  const rectangles = [];
+  const pins = [];
+  let zone = null;
+  if (visible) {
+    const displayed = zones.map(region => zoneInBounds(region, map.bounds));
+    if (drag) displayed[drag.index] = drag.preview;
+    zone = displayed[active];
+    displayed.forEach((region, index) => {
+      if (!region) return;
+      const [x1, y1, x2, y2] = region;
+      const invalid = Boolean(zoneProblem(region, map.floor));
+      const rectangle = document.createElementNS(svgNS, 'rect');
+      rectangle.classList.add('zone-overlay');
+      rectangle.dataset.zoneIndex = index;
+      rectangle.dataset.selected = String(index === active);
+      rectangle.dataset.invalid = String(invalid);
+      for (const [key, value] of Object.entries({ x: x1, y: -y2, width: x2 - x1, height: y2 - y1 })) {
+        rectangle.setAttribute(key, value);
+      }
+      rectangles.push(rectangle);
+      if (!matrix) return;
+      const point = new DOMPoint(x1 + (x2 - x1) * .2, -y2 + (y2 - y1) * .2).matrixTransform(matrix);
+      const pin = make('span', String(index + 1), 'zone-pin');
+      pin.dataset.invalid = String(invalid);
+      pin.style.left = `${point.x - host.left - mapHost.clientLeft}px`;
+      pin.style.top = `${point.y - host.top - mapHost.clientTop}px`;
+      pins.push(pin);
+    });
+  }
+  zoneLayer?.replaceChildren(...rectangles);
+  zonePins.replaceChildren(...pins);
   zoneBadge.hidden = !zone;
   zoneHandles.hidden = !zone;
   zoneSummary.hidden = !zone || Boolean(drag);
   if (!zone) return;
   const [x1, y1, x2, y2] = zone;
-  for (const [key, value] of Object.entries({ x: x1, y: -y2, width: x2 - x1, height: y2 - y1 })) {
-    overlay.setAttribute(key, value);
-  }
   const size = zoneMeasures(zone, map.unitsPerMetre, map.floor);
   const dimensions = size ? `${measureText(size.width)} × ${measureText(size.length)} м · ${measureText(size.rectangle)} м²` : 'Масштаб карты не подтверждён';
   const floor = size?.floor == null ? 'Пол по карте: нет данных' : `Пол по карте: ${measureText(size.floor)} м²`;
@@ -192,11 +251,9 @@ function updateOverlay() {
   label(byId('zone-warning'), warning);
   if (!drag) label(zoneSummary, [dimensions, floor, warning].filter(Boolean).join('. '));
 
-  const matrix = scene.getScreenCTM();
   if (!matrix) return;
   const corners = [[x1, -y1], [x1, -y2], [x2, -y1], [x2, -y2]]
     .map(([x, y]) => new DOMPoint(x, y).matrixTransform(matrix));
-  const host = mapHost.getBoundingClientRect();
   positionZoneHandles(corners, host);
   const margin = 7;
   const centreX = (Math.min(...corners.map(point => point.x)) + Math.max(...corners.map(point => point.x))) / 2 - host.left;
@@ -270,12 +327,41 @@ function updateRoomPins() {
   roomPins.replaceChildren(...pins);
 }
 
+function renderZoneFields(drawZone) {
+  const editing = drawZone && map && !drag && !busy;
+  for (const field of zoneFields) field.disabled = !editing;
+  addZone.disabled = !editing || zones.length >= maxZones ||
+    (selectedZone >= 0 && zones[selectedZone].every(Number.isNaN));
+  removeZone.disabled = !editing || selectedZone < 0;
+  clearZone.disabled = !editing || !zones.length;
+  while (zoneList.children.length > zones.length) zoneList.lastElementChild.remove();
+  while (zoneList.children.length < zones.length) {
+    const index = zoneList.children.length;
+    const button = make('button');
+    button.type = 'button';
+    button.dataset.zoneIndex = index;
+    button.append(make('span', `Зона ${index + 1}`), make('small'));
+    const item = make('li');
+    item.append(button);
+    zoneList.append(item);
+  }
+  zones.forEach((coordinates, index) => {
+    const button = zoneList.children[index].firstElementChild;
+    const zone = map && zoneInBounds(coordinates, map.bounds);
+    button.setAttribute('aria-pressed', String(index === selectedZone));
+    button.disabled = !editing;
+    label(button.lastElementChild, zoneProblem(zone, map?.floor));
+  });
+  label(byId('zone-edit-hint'), selectedZone < 0 ? 'Укажите противоположные углы первой зоны.' :
+    `Укажите противоположные углы зоны ${selectedZone + 1}.`);
+}
+
 function renderJob() {
   const drawZone = target === 'zone' && !(cleanGenius > 0);
   if (!drawZone) stopZoneDrag();
   mapHost.dataset.mode = target === 'zone' && !drawZone ? 'rooms' : target;
   byId('zone-fields').hidden = !drawZone;
-  clearZone.disabled = !drag && !zoneFields.some(field => field.value);
+  renderZoneFields(drawZone);
   byId('tuning').hidden = target === 'all' || cleanGenius > 0;
   for (const id of selects) {
     const field = byId(id);
@@ -283,9 +369,9 @@ function renderJob() {
   }
   label(byId('target-summary'), targetText());
   label(byId('map-hint'), !map ? 'Ожидаем актуальную сохранённую карту.' : drawZone
-    ? (zoneInBounds(readZone(), map.bounds)
-      ? 'Перетаскивайте зону за середину. Размер меняйте за маркер на стороне или в углу. Начните снаружи, чтобы нарисовать новую зону.'
-      : 'Проведите от одного угла зоны до другого или укажите координаты.') : 'Выберите комнаты на карте или в списке.');
+    ? (zones.length >= maxZones ? `В задании может быть до ${maxZones} зон. Выберите зону, чтобы изменить её.`
+      : zones.length ? 'Нажмите на зону, чтобы выбрать её. Потяните за середину, сторону или угол. Проведите по свободному месту, чтобы добавить зону.'
+        : 'Проведите от одного угла зоны до другого или укажите координаты.') : 'Выберите комнаты на карте или в списке.');
   const order = new Map(target === 'rooms' ? [...rooms].map((id, index) => [id, index + 1]) : []);
   for (const element of [mapHost, roomList].flatMap(host => [...host.querySelectorAll('[data-room]')])) {
     const position = order.get(Number(element.dataset.room));
@@ -334,7 +420,7 @@ function replaceMap(next) {
   clearAlignmentZone('Карта обновилась. Выберите зону заново.');
   roomList.replaceChildren();
   scene = null;
-  overlay = null;
+  zoneLayer = null;
   overlaysGroup = null;
   overlaysKey = '';
   features = [];
@@ -368,11 +454,10 @@ function replaceMap(next) {
   overlaysGroup = document.createElementNS(svgNS, 'g');
   overlaysGroup.classList.add('map-overlays');
   overlaysGroup.setAttribute('aria-hidden', 'true');
-  overlay = document.createElementNS(svgNS, 'rect');
-  overlay.classList.add('zone-overlay');
-  overlay.setAttribute('aria-hidden', 'true');
-  scene.append(overlaysGroup, overlay);
-  mapHost.replaceChildren(svg, roomPins, robotMarker, zoneBadge, zoneHandles);
+  zoneLayer = document.createElementNS(svgNS, 'g');
+  zoneLayer.setAttribute('aria-hidden', 'true');
+  scene.append(overlaysGroup, zoneLayer);
+  mapHost.replaceChildren(svg, roomPins, robotMarker, zonePins, zoneBadge, zoneHandles);
 }
 
 function showRoomAreas() {
@@ -385,13 +470,10 @@ function showRoomAreas() {
 }
 
 function clearAlignmentZone(message) {
-  if (!drag && !confirmingZone && !zoneFields.some(field => field.value)) return;
-  zoneEpoch++;
-  stopZoneDrag();
-  for (const field of zoneFields) field.value = '';
-  if (confirmingZone && modal.open) modal.close('cancel');
-  if (message && (target === 'zone' || confirmingZone)) notify(message, false);
-  renderJob();
+  if (!drag && !confirmingZone && !zones.length) return;
+  const showMessage = target === 'zone' || confirmingZone;
+  replaceZoneDraft([]);
+  if (message && showMessage) notify(message, false);
 }
 
 function updateRobotMarker() {
@@ -691,10 +773,32 @@ form.addEventListener('change', event => {
   else renderJob();
 });
 for (const input of zoneFields) input.addEventListener('input', () => {
-  stopZoneDrag();
+  if (selectedZone < 0) selectedZone = 0;
+  zones[selectedZone] = readZone();
+  zoneEpoch++;
   renderJob();
 });
+addZone.addEventListener('click', () => {
+  zones.push([NaN, NaN, NaN, NaN]);
+  selectZone(zones.length - 1);
+  zoneEpoch++;
+  renderJob();
+  zoneFields[0].focus();
+});
+removeZone.addEventListener('click', () => {
+  zones.splice(selectedZone, 1);
+  selectZone(Math.min(selectedZone, zones.length - 1));
+  zoneEpoch++;
+  renderJob();
+  if (selectedZone < 0) addZone.focus();
+});
 clearZone.addEventListener('click', () => clearAlignmentZone());
+zoneList.addEventListener('click', event => {
+  const button = event.target.closest('button[data-zone-index]');
+  if (!button) return;
+  selectZone(Number(button.dataset.zoneIndex));
+  renderJob();
+});
 roomList.addEventListener('click', event => {
   const room = event.target.closest('button[data-room]');
   if (room) toggleRoom(room.dataset.room);
@@ -737,18 +841,22 @@ function stopZoneDrag() {
 }
 
 mapHost.addEventListener('pointerdown', event => {
-  if (mapHost.dataset.mode !== 'zone' || event.button !== 0 || !event.isPrimary || drag) return;
+  if (mapHost.dataset.mode !== 'zone' || event.button !== 0 || !event.isPrimary || drag || busy) return;
   const point = pointerPoint(event);
   if (!point) return;
-  const { corner, side } = event.target.dataset;
+  const { corner, side, zoneIndex } = event.target.dataset;
   const handle = side ?? (corner === undefined ? null : Number(corner));
-  const editing = handle !== null || event.target === overlay || event.target === zoneMove;
-  const zone = editing ? zoneInBounds(readZone(), map.bounds) : null;
+  const editing = zoneIndex !== undefined || handle !== null || event.target === zoneMove;
+  const emptySelected = zones[selectedZone]?.every(Number.isNaN);
+  const index = editing ? Number(zoneIndex ?? selectedZone) : emptySelected ? selectedZone : zones.length;
+  if (index >= maxZones) return;
+  const zone = editing ? zoneInBounds(zones[index], map.bounds) : null;
   const start = zone ? point : pointOnMap(point[0], -point[1], map.bounds);
   if (!start) return;
+  if (editing && selectedZone !== index) selectZone(index);
   event.preventDefault();
   mapHost.setPointerCapture(event.pointerId);
-  drag = { id: event.pointerId, start, zone, handle, preview: zone };
+  drag = { id: event.pointerId, start, index, zone, handle, preview: zone };
   renderJob();
 });
 mapHost.addEventListener('pointermove', event => {
@@ -759,9 +867,13 @@ mapHost.addEventListener('pointermove', event => {
 mapHost.addEventListener('pointerup', event => {
   if (drag?.id !== event.pointerId) return;
   updateZoneDrag(event);
-  const zone = drag.preview;
+  const { index, preview } = drag;
   stopZoneDrag();
-  if (zone) zoneFields.forEach((field, index) => { field.value = zone[index]; });
+  if (preview) {
+    zones[index] = preview;
+    selectZone(index);
+    zoneEpoch++;
+  }
   renderJob();
 });
 for (const type of ['pointercancel', 'lostpointercapture']) {
@@ -1069,8 +1181,10 @@ async function send(action) {
     if (!preview) {
       confirmingZone = job.kind === 'zone';
       const modeText = cleanGenius === null ? '' : ` CleanGenius — ${cleanGeniusText()}.`;
+      const areas = job.zones || (job.zone ? [job.zone] : []);
+      const areaText = areas.map(([x1, y1, x2, y2], index) => `Зона ${index + 1} · (${x1}, ${y1}) → (${x2}, ${y2})`);
       const confirmed = await confirmMessage('Подтвердите команду',
-        action === 'start' ? `Начать уборку? ${targetText()}.${modeText}` : motionLabels[action]);
+        action === 'start' ? [`Начать уборку? ${targetText()}.${modeText}`, ...areaText].join('\n') : motionLabels[action]);
       confirmingZone = false;
       if (!confirmed) return;
     }

@@ -13,6 +13,8 @@ REQUEST_ID = re.compile(r"[A-Za-z0-9_-]{1,96}\Z")
 REVISION = re.compile(r"[a-f0-9]{64}\Z")
 ACTION_FIELDS = {"request_id", "action"}
 START_FIELDS = ACTION_FIELDS | {"map_id", "revision", "kind"}
+# Same panel limit as the upstream Dreame Vacuum map card.
+MAX_ZONES = 10
 ACTIVE = {"AUTO_CLEANING", "SEGMENT_CLEANING", "ZONE_CLEANING", "SPOT_CLEANING"}
 PAUSED = {task + "_PAUSED" for task in ACTIVE} | {
     "MOPPING_PAUSED", "AUTO_MOPPING_PAUSED", "SEGMENT_MOPPING_PAUSED", "ZONE_MOPPING_PAUSED",
@@ -41,6 +43,36 @@ def blocking_error(raw_error, faults, self_wash_base):
     return next((n for n in codes if n != 0 and not (self_wash_base and n == 68)), 0)
 
 
+def job_zones(request):
+    return request["zones"] if "zones" in request else [request["zone"]]
+
+
+def check_zone_coordinates(zone):
+    if not (type(zone) is list and len(zone) == 4
+            and all(integer(x, -999999, 999999) for x in zone)
+            and zone[0] < zone[2] and zone[1] < zone[3]):
+        raise Refused("укажите прямоугольник [x1, y1, x2, y2] с возрастающими координатами")
+
+
+def check_zone_geometry(zone, map_info, grid):
+    check_zone_coordinates(zone)
+    bounds = map_info.get("bounds") if isinstance(map_info, dict) else None
+    if (type(bounds) is not list or len(bounds) != 4 or not all(type(x) is int for x in bounds)
+            or not integer(grid, 1, 999999)):
+        raise Refused("не подтверждены границы карты")
+    left, bottom, right, top = bounds
+    x1, y1, x2, y2 = zone
+    if not (left <= x1 < x2 <= right and bottom <= y1 < y2 <= top and min(x2 - x1, y2 - y1) > 2 * grid):
+        raise Refused("слишком мала или выходит за границы карты")
+    floor = map_info.get("floor")
+    if (type(floor) is not dict or type(floor.get("grid_size")) is not int or floor["grid_size"] != grid
+            or type(floor.get("runs")) is not list):
+        raise Refused("не подтверждён доступный пол на карте")
+    if not any(y < y2 and y + grid > y1 and left_x < x2 and right_x > x1
+               for y, left_x, right_x in floor["runs"]):
+        raise Refused("нет доступного пола по карте пылесоса")
+
+
 def _normalize(request):
     if type(request) is not dict or not ACTION_FIELDS <= request.keys():
         raise Refused("Укажите действие и идентификатор запроса")
@@ -67,22 +99,29 @@ def _normalize(request):
     options = {"repeats", "suction", "water"}
     if kind == "rooms":
         options.add("expected_cleangenius")
-    if kind not in ("rooms", "zone") or kind not in request or request.keys() - START_FIELDS - {kind} - options:
+    field = "zones" if kind == "zone" and "zones" in request else kind
+    if kind not in ("rooms", "zone") or field not in request or request.keys() - START_FIELDS - {field} - options:
         raise Refused("Укажите одну цель уборки")
-    target = request[kind]
+    target = request[field]
     if kind == "rooms" and not (type(target) is list and 1 <= len(target) <= 32
                                 and all(integer(x, 1, 255) for x in target) and len(set(target)) == len(target)):
         raise Refused("Укажите от 1 до 32 разных числовых ID комнат")
-    if kind == "zone" and not (type(target) is list and len(target) == 4
-                               and all(integer(x, -999999, 999999) for x in target)
-                               and target[0] < target[2] and target[1] < target[3]):
-        raise Refused("Укажите прямоугольник [x1, y1, x2, y2] с возрастающими координатами")
+    if kind == "zone":
+        zones = job_zones(request)
+        if type(zones) is not list or not 1 <= len(zones) <= MAX_ZONES:
+            raise Refused(f"Укажите от 1 до {MAX_ZONES} зон")
+        for number, zone in enumerate(zones, 1):
+            try:
+                check_zone_coordinates(zone)
+            except Refused as exc:
+                raise Refused(f"Зона {number}: {exc}") from exc
+        target = [zone.copy() for zone in zones] if field == "zones" else target
     for key, low, high in (("suction", 0, 3), ("water", 1, 3), ("repeats", 1, 3)):
         if key in request and not integer(request[key], low, high):
             raise Refused("Проверьте мощность, влажность и число проходов")
     if "expected_cleangenius" in request and not integer(request["expected_cleangenius"], 0, 2):
         raise Refused("Неизвестный режим CleanGenius")
-    return {"repeats": 1, **request, kind: target.copy()}
+    return {"repeats": 1, **request, field: target.copy()}
 
 
 def check_observation_age(snap):
@@ -167,17 +206,11 @@ def _check_start(request, snap, map_info):
     if kind == "rooms" and not all(str(room) in map_info["rooms"] for room in request["rooms"]):
         raise Refused("На текущей карте нет выбранных комнат")
     if kind == "zone":
-        bounds, grid = map_info.get("bounds"), snap.get("command_grid")
-        if not bounds or len(bounds) != 4 or not integer(grid, 1, 999999):
-            raise Refused("Робот не подтвердил границы карты")
-        left, bottom, right, top = bounds
-        x1, y1, x2, y2 = request["zone"]
-        if not (left <= x1 < x2 <= right and bottom <= y1 < y2 <= top and min(x2 - x1, y2 - y1) > 2 * grid):
-            raise Refused("Зона слишком мала или выходит за границы карты")
-        floor = map_info.get("floor") or {}
-        if not any(y < y2 and y + grid > y1 and left_x < x2 and right_x > x1
-                   for y, left_x, right_x in floor.get("runs", [])):
-            raise Refused("В выбранной зоне нет доступного пола по карте пылесоса")
+        for number, zone in enumerate(job_zones(request), 1):
+            try:
+                check_zone_geometry(zone, map_info, snap.get("command_grid"))
+            except Refused as exc:
+                raise Refused(f"Зона {number}: {exc}") from exc
 
 
 class Jobs:

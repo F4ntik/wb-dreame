@@ -60,7 +60,19 @@ button:disabled { cursor: default; opacity: .52; }
 .map:not([data-mode="zone"]) [data-room]:hover { filter: brightness(.88); }
 .map [data-room]:focus-visible { outline: 2px solid #14766b; outline-offset: 2px; }
 .map [data-room][aria-pressed="true"] { fill: #45bda8; }
-.zone-overlay { fill: #16a99542; stroke: #008475; stroke-width: 2; stroke-dasharray: 6 4; vector-effect: non-scaling-stroke; cursor: move; }
+.zone-overlay { fill: #16a99528; stroke: #008475; stroke-width: 2; stroke-dasharray: 6 4; vector-effect: non-scaling-stroke; cursor: move; }
+.zone-overlay[data-selected="true"] { fill: #16a99555; stroke: #006858; stroke-dasharray: none; }
+.zone-overlay[data-invalid="true"] { fill: #c366522b; stroke: #9c4336; }
+.zone-pin { position: absolute; transform: translateY(-50%); min-width: 1.35rem; padding-inline: .22rem; border: 1px solid white; border-radius: 99px; background: #006858; color: white; font-size: .72rem; font-weight: 700; text-align: center; }
+.zone-pin[data-invalid="true"] { background: #9c4336; }
+.zone-pins { position: absolute; inset: 0; pointer-events: none; }
+.zone-list { display: flex; flex-wrap: wrap; gap: .35rem; margin: 0; padding: 0; list-style: none; }
+.zone-list button { min-height: 44px; padding: .35rem .55rem; font-size: .82rem; text-align: left; }
+.zone-list button[aria-pressed="true"] { background: var(--accent-bg); border-color: var(--accent); }
+.zone-list small { display: block; color: #8a4934; font-weight: 500; }
+.zone-list small:empty { display: none; }
+.zone-actions { display: flex; flex-wrap: wrap; gap: .38rem; margin-top: .5rem; }
+.zone-actions button { min-height: 44px; padding-inline: .55rem; font-size: .79rem; }
 .zone-handles { position: absolute; inset: 0; pointer-events: none; z-index: 2; }
 .zone-handle { position: absolute; display: grid; place-items: center; width: 32px; height: 32px; transform: translate(-50%, -50%); pointer-events: auto; cursor: move; }
 .zone-handle::before { content: ''; width: 18px; height: 18px; border: 2px solid #fff; border-radius: 50%; background: #006858; box-shadow: 0 0 0 1px #006858; }
@@ -194,6 +206,7 @@ legend { padding: 0; margin-bottom: .34rem; font-size: .85rem; font-weight: 700;
 dialog { width: min(420px, calc(100% - 2rem)); color: inherit; border-radius: 15px; border: 1px solid var(--border); padding: 1.25rem; }
 dialog::backdrop { background: #183a3566; }
 dialog p { margin: .55rem 0 1rem; }
+#confirmation-message { white-space: pre-line; }
 .dialog-actions { display: flex; justify-content: flex-end; gap: .5rem; }
 .history-dialog { width: min(880px, calc(100% - 2rem)); max-height: 92dvh; padding: 0; border-radius: 22px; overflow: hidden; box-shadow: 0 18px 70px #12282045; }
 .history-dialog[open] { display: flex; flex-direction: column; }

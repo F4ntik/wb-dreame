@@ -9,7 +9,7 @@ from config import COMMAND_MODELS, MODELS, Refused, atomic, read
 from details import FRESH_BASE_PROPERTIES, history_records, read_details
 from history_media import camera_status
 from overlays import read_overlays
-from jobs import CLEANING, blocking_error, check_observation_age
+from jobs import CLEANING, blocking_error, check_observation_age, job_zones
 from panel import map_snapshot
 from preferences import cleangenius_value, offered, property_write_permitted
 from schedules import delete_write_permitted
@@ -337,7 +337,7 @@ class Robot:
                                       for index, room in enumerate(request["rooms"], 1)]}
             else:
                 status = DS.ZONE_CLEANING
-                payload = {"areas": [[*request["zone"], *options]]}
+                payload = {"areas": [[*zone, *options] for zone in job_zones(request)]}
             params = [{"piid": d.property_mapping[P.STATUS]["piid"], "value": status.value},
                       {"piid": d.property_mapping[P.CLEANING_PROPERTIES]["piid"],
                        "value": json.dumps(payload, separators=(",", ":"))}]

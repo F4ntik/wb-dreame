@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { adjustUnderlay, cleaningCoverage, dragZone, jobRequest, mapInfo, mapOverlays, mapView, pendingRequest, pointOnMap, preferenceInfo,
-  preferenceRequest, rectanglePaths, requestIdentity, underlayInfo, zoneHitsNoGo, zoneInBounds, zoneMeasures } from '../web/controls.js';
+import { adjustUnderlay, cleaningCoverage, dragZone, jobRequest, mapInfo, mapOverlays, mapView, maxZones, pendingRequest, pointOnMap, preferenceInfo,
+  preferenceRequest, rectanglePaths, requestIdentity, underlayInfo, zoneHitsNoGo, zoneInBounds, zoneMeasures, zoneProblem } from '../web/controls.js';
 
 const map = mapInfo({ id: 7, revision: 'r2', bounds: [-300, -100, 500, 650],
   rooms: { 1: 'Кухня', 3: 'Холл', wrong: 'Не комната' }, svg: '<svg/>' });
@@ -39,6 +39,26 @@ test('dragging clamps the rectangle and each corner, keeping the opposite sides 
   assert.deepEqual(dragZone(zone, 1, [1000, 1000], map.bounds), [199, -10, 200, 650]);
   assert.deepEqual(dragZone(zone, 2, [1000, -1000], map.bounds), [-230, -100, 500, 480]);
   assert.deepEqual(dragZone(zone, 3, [-1000, -1000], map.bounds), [-230, -10, -229, -9]);
+});
+
+test('a zone job preserves all rectangles in order and rejects incomplete or oversized lists', () => {
+  const settings = { suction: '0', water: '3', repeats: '2' };
+  const first = [200, 480, -230, -10], second = [250, 45, 470, 400];
+  const build = zones => jobRequest('start', map, { kind: 'zone', zones }, settings, 0);
+  assert.deepEqual(build([first, second]), {
+    action: 'start', map_id: map.id, revision: map.revision, kind: 'zone',
+    zones: [[-230, -10, 200, 480], second], suction: 0, water: 3, repeats: 2,
+  });
+  assert.deepEqual(build([first]).zone, [-230, -10, 200, 480]);
+  for (const zones of [[], [first, [true, -10, 200, 480]], [first, [NaN, -10, 200, 480]],
+    [first, [0, -10, 200]], [first, [0, -10, 600, 480]], Array(maxZones + 1).fill(first), Array(2)]) {
+    assert.equal(build(zones), null);
+  }
+  const floor = { gridSize: 50, runs: [[0, -200, 220]] };
+  assert.equal(zoneProblem(build([first]).zone, floor), '');
+  assert.match(zoneProblem(second, floor), /Нет доступного пола/);
+  assert.match(zoneProblem(second, null), /Нет данных/);
+  assert.match(zoneProblem([0, 0, 100, 200], floor), /Слишком маленькая/);
 });
 
 test('each side follows only its map axis and stops at the bounds and its opposite side', () => {

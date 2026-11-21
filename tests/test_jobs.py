@@ -6,7 +6,7 @@ from types import SimpleNamespace
 from unittest.mock import Mock
 
 from config import Refused
-from jobs import Jobs, blocking_error
+from jobs import MAX_ZONES, Jobs, blocking_error
 
 
 class JobsTest(unittest.TestCase):
@@ -94,6 +94,36 @@ class JobsTest(unittest.TestCase):
                 self.jobs.submit(request, self.robot, snap, plan, True)
         self.assertEqual(self.robot.mock_calls, [])
 
+    def test_multiple_zones_keep_order_and_reject_the_whole_job_on_a_bad_rectangle(self):
+        first, second = [-240, -200, -50, 200], [40, -200, 250, 200]
+        request = {k: v for k, v in self.request.items() if k != "rooms"}
+        request.update(kind="zone", zones=[first, second])
+        preview = self.jobs.preview(request, self.snap, self.plan)["request"]
+        self.assertEqual(preview["zones"], [first, second])
+        self.assertIsNot(preview["zones"][0], first)
+        self.jobs.preview(dict(request, zones=[first] * MAX_ZONES), self.snap, self.plan)
+        for zones in ([first, [-100, -200, 0, 200]], [first, [260, -200, 450, 200]],
+                      [first, [0, -800, 300, 200]], [first, [False, -200, 300, 200]],
+                      [first, [[-100, -200, 0, 200]]], [first, [0, -200, 10**30, 200]],
+                      [first] * (MAX_ZONES + 1), [], None, first):
+            with self.subTest(zones=zones), self.assertRaises(Refused):
+                self.jobs.submit(dict(request, zones=zones), self.robot, self.snap, self.plan, True)
+        for plan in (dict(self.plan, floor=None), dict(self.plan, floor={"grid_size": 30, "runs": []})):
+            with self.assertRaisesRegex(Refused, "пол"):
+                self.jobs.submit(request, self.robot, self.snap, plan, True)
+        with self.assertRaises(Refused):
+            self.jobs.submit(dict(request, zone=first), self.robot, self.snap, self.plan, True)
+        self.assertEqual(self.robot.mock_calls, [])
+        self.assertIsNone(self.jobs.last)
+
+        self.robot.send_job.return_value = {"code": 0}
+        accepted = self.jobs.submit(request, self.robot, self.snap, self.plan, True)
+        self.assertEqual(accepted["request"]["zones"], [first, second])
+        self.assertEqual(self.jobs.submit(request, self.robot, {}, None), accepted)
+        with self.assertRaisesRegex(Refused, "идентификатор уже использован"):
+            self.jobs.lookup(dict(request, zones=[second, first]))
+        self.robot.send_job.assert_called_once()
+
     def test_drying_start_requires_completed_task_charging_dock_and_no_error(self):
         snap = dict(self.snap, state="DRYING", docked_drying=True)
         self.jobs.preview(self.request, snap, self.plan)
@@ -177,6 +207,9 @@ class RobotJobsTest(unittest.TestCase):
         robot.device._protocol.action.assert_not_called()
         for request, status, payload in (
             (zone, DS.ZONE_CLEANING, {"areas": [[-150, 10, 200, 300, 2, 0, 2]]}),
+            ({"action": "start", "kind": "zone", "zones": [[-150, 10, 200, 300], [205, 30, 460, 400]],
+              "repeats": 3, "suction": 2, "water": 1}, DS.ZONE_CLEANING,
+             {"areas": [[-150, 10, 200, 300, 3, 2, 1], [205, 30, 460, 400, 3, 2, 1]]}),
             ({"action": "start", "kind": "rooms", "rooms": [3, 2], "repeats": 3, "water": 1}, DS.SEGMENT_CLEANING,
              {"selects": [[3, 3, 1, 1, 1], [2, 3, 1, 1, 1]]}),
         ):
