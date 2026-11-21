@@ -6,6 +6,7 @@
   <title>Пылесос Dreame</title>
   <link rel="stylesheet" href="./style.css">
   <link rel="stylesheet" href="./views.css">
+  <link rel="stylesheet" href="./resources.css">
   <script type="module" src="./app.js"></script>
   <script type="module" src="./schedules.js"></script>
 </head>
@@ -218,39 +219,43 @@
 
     <div id="view-resources" role="tabpanel" aria-labelledby="tab-resources" hidden>
       <section class="service-panel" id="metrics">
-        <header class="page-title">
-          <h2>Ресурсы</h2>
-          <a id="resource-photo-credit" href="https://ru.dreametech.com/product/robot-pylesos-l40s-pro-ultra/" target="_blank" rel="noopener noreferrer" hidden>Фото Dreame</a>
-        </header>
-        <dl class="service-totals" id="resource-totals" aria-label="Статистика уборок" hidden></dl>
+        <header class="page-title"><h2>Ресурсы</h2></header>
         <p id="resource-empty" class="muted" role="status">Ожидаем показания робота.</p>
         <div class="service-layout">
-          <section class="service-device" data-resource-device="robot" aria-labelledby="resource-robot-title">
-            <header class="service-device-heading">
-              <div class="service-device-photo" aria-hidden="true"></div>
-              <div>
-                <h3 id="resource-robot-title">Робот-пылесос</h3>
-                <dl class="service-primary"></dl>
-              </div>
-            </header>
-            <dl class="service-status"></dl>
-            <h4 class="supply-heading" hidden>Расходники и обслуживание</h4>
-            <dl class="supply-grid"></dl>
-            <p class="service-device-empty muted" hidden>Показания не получены.</p>
+          <section class="service-card service-maintenance" aria-labelledby="service-title" hidden>
+            <h3 id="service-title">Обслуживание</h3>
+            <p class="service-estimate" id="service-estimate" hidden>Дни со знаком ≈ рассчитаны по недавним уборкам.</p>
+            <div id="service-groups"></div>
           </section>
-          <section class="service-device" data-resource-device="dock" aria-labelledby="resource-dock-title">
-            <header class="service-device-heading">
-              <div class="service-device-photo" aria-hidden="true"></div>
-              <div>
-                <h3 id="resource-dock-title">Станция</h3>
-                <dl class="service-primary"></dl>
+          <div class="service-aside">
+            <section class="service-card service-equipment" aria-labelledby="resource-equipment-title" hidden>
+              <h3 id="resource-equipment-title">Робот и станция</h3>
+              <div data-resource-device="robot">
+                <div class="service-device-heading">
+                  <span class="service-device-photo service-photo" aria-hidden="true"></span>
+                  <div><h4>Робот-пылесос</h4><p class="service-primary"></p></div>
+                </div>
+                <dl class="service-status"></dl>
               </div>
-            </header>
-            <dl class="service-status"></dl>
-            <h4 class="supply-heading" hidden>Расходники и обслуживание</h4>
-            <dl class="supply-grid"></dl>
-            <p class="service-device-empty muted" hidden>Показания не получены.</p>
-          </section>
+              <div data-resource-device="dock">
+                <div class="service-device-heading">
+                  <span class="service-device-photo service-photo" aria-hidden="true"></span>
+                  <div><h4>Станция</h4><p class="service-primary"></p></div>
+                </div>
+                <dl class="service-status"></dl>
+              </div>
+            </section>
+            <section class="service-card service-statistics" aria-labelledby="resource-stats-title" hidden>
+              <h3 id="resource-stats-title">За всё время</h3>
+              <dl class="service-totals" id="resource-totals"></dl>
+            </section>
+            <details class="service-card service-reference" id="service-reference" hidden>
+              <summary>Детали без показаний</summary>
+              <p>Эти детали подходят к L40s Pro Ultra. Робот пока не передал их состояние.</p>
+              <ul></ul>
+            </details>
+            <p class="service-credits" id="resource-photo-credit" hidden>Фото Dreame · <a href="https://ru.dreametech.com/product/robot-pylesos-l40s-pro-ultra/" target="_blank" rel="noopener noreferrer">Робот и станция</a> · <a href="https://fr.dreametech.com/collections/accessoires/robots-aspirateur-l40s-pro-ultra" target="_blank" rel="noopener noreferrer">Расходники</a></p>
+          </div>
         </div>
       </section>
     </div>

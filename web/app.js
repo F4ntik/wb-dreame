@@ -2,7 +2,8 @@ import { adjustUnderlay, cleaningCoverage, dragZone, jobRequest, mapInfo, mapOve
   preferenceRequest, rectanglePaths, requestIdentity, roomStatusLabels, safeMapSvg, svgNS, underlayInfo, underlayUrl, zoneHitsNoGo, zoneInBounds,
   zoneListInBounds, zoneMeasures, zoneProblem } from './controls.js';
 import { scenarios } from './scenarios.js';
-import { confirmMessage, initViews, resourceWidget } from './views.js';
+import { confirmMessage, initViews } from './views.js';
+import { resourceWidget } from './resources.js';
 import { historyRows, historyView } from './history.js';
 
 const byId = id => document.getElementById(id);
