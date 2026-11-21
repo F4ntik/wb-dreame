@@ -317,3 +317,8 @@ dialog p { margin: .55rem 0 1rem; }
 .scenario-content p { margin: .4rem 0; }
 .scenario-buttons { display: flex; flex-wrap: wrap; gap: .5rem; }
 .scenario-buttons button { overflow-wrap: anywhere; }
+
+.job-card > .scenario-panel { margin: 0 0 16px; }
+.job-card.editing-entrance :is(#cleaning-mode,.target-selector,#submit-job,#submit-hint,#target-summary,#motion-controls,#scenario-panel,#forget-request,#command-state,#job-result) { display: none; }
+#entrance-editor-actions:not([hidden]) { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 12px; }
+#entrance-editor-actions .field-hint { flex-basis: 100%; margin: 0; }

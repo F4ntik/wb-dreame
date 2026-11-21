@@ -81,14 +81,6 @@ const measures = new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 2 });
 const frameTime = new Intl.DateTimeFormat('ru-RU', { timeStyle: 'medium' });
 const reportTime = new Intl.DateTimeFormat('ru-RU', { dateStyle: 'short', timeStyle: 'short' });
 
-const states = {
-  SHORTCUT: 'Выполняет сценарий', SECOND_CLEANING: 'Доубирает', EXTRA_CLEANING: 'Повторная уборка',
-  CHARGING_COMPLETED: 'Зарядка завершена', CHARGING: 'Зарядка', IDLE: 'Ожидание',
-  SWEEPING: 'Подметает', MOPPING: 'Моет пол', SWEEPING_AND_MOPPING: 'Убирает и моет пол',
-  CLEANING: 'Уборка', SPOT_CLEANING: 'Убирает участок', PAUSED: 'Пауза', RETURNING: 'Возвращается на базу', ERROR: 'Ошибка',
-  WASHING: 'Моет салфетки', DRYING: 'Сушит салфетки', AUTO_EMPTYING: 'Очищает контейнер',
-  SMART_CHARGING: 'Зарядка по расписанию', BUILDING: 'Строит карту', WAITING_FOR_TASK: 'Ожидает задание',
-};
 const motionLabels = {
   pause: 'Приостановить уборку?', resume: 'Продолжить уборку?',
   stop: 'Остановить уборку?', dock: 'Отправить пылесос на базу?',
@@ -157,10 +149,6 @@ function make(tag, value, className) {
   return element;
 }
 
-function stateLabel(value) {
-  return typeof value === 'string' && value ? (Object.hasOwn(states, value) ? states[value] : value) : '—';
-}
-
 function dockStatus(data) {
   if (data.online !== true) return '—';
   return ({ docked: 'На базе', returning: 'Возвращается', away: 'Вне базы' })[data.dock_status] || 'Нет данных о положении';
@@ -191,6 +179,22 @@ function replaceZoneDraft(next) {
   if (confirmingZone && modal.open) modal.close('cancel');
   renderJob();
   return true;
+}
+
+function tuning() {
+  return Object.fromEntries(selects.filter(id => byId(id).value !== '').map(id => [id, Number(byId(id).value)]));
+}
+
+function applyTuning(settings = {}) {
+  for (const id of selects) byId(id).value = settings[id] ?? (id === 'repeats' ? 1 : '');
+}
+
+function tuningSummary(settings = {}) {
+  const description = (id, fallback) => {
+    const option = Array.from(byId(id).options).find(item => item.value === String(settings[id]));
+    return option ? option.textContent.replace(/^\d+ · /, '') : fallback;
+  };
+  return `Всасывание: ${description('suction', 'как у робота')} · Вода: ${description('water', 'как у робота')} · Проходы: ${settings.repeats ?? 1}`;
 }
 
 function prepared(action = 'start') {
@@ -364,12 +368,18 @@ function renderZoneFields(drawZone) {
 
 function renderJob() {
   scenarioPanel?.render();
+  const editing = scenarioPanel?.editing() || false;
+  byId('job-title').closest('.job-card').classList.toggle('editing-entrance', editing);
+  label(byId('job-title'), editing ? 'Песок у входа' : 'Задание уборки');
+  label(byId('tuning-title'), editing ? 'Параметры сценария' : 'Параметры задания');
+  label(byId('tuning-hint'), editing ? 'Сохраняются на WB вместе с зонами. «Как у робота» берёт значение при запуске.' : 'Действуют для этого запуска.');
+  byId('entrance-editor-actions').hidden = !editing;
   const drawZone = target === 'zone';
   if (!drawZone) stopZoneDrag();
   mapHost.dataset.mode = target;
   byId('zone-fields').hidden = !drawZone;
   renderZoneFields(drawZone);
-  byId('tuning').hidden = target === 'all' || cleanGenius > 0;
+  byId('tuning').hidden = !editing && (target === 'all' || cleanGenius > 0);
   for (const id of selects) {
     const field = byId(id);
     field.dataset.custom = String(field.value !== (id === 'repeats' ? '1' : ''));
@@ -417,6 +427,7 @@ function replaceMap(next) {
     return;
   }
   if (!next && !map) return;
+  scenarioPanel?.mapChanged();
   svg = next && safeMapSvg(next, document);
   map = svg ? next : null;
   rooms.clear();
@@ -792,7 +803,7 @@ underlayToggle.addEventListener('change', showUnderlay);
 underlayOpacity.addEventListener('input', showUnderlay);
 
 function toggleRoom(key) {
-  if (!map || !Object.hasOwn(map.rooms, key)) return;
+  if (scenarioPanel?.editing() || !map || !Object.hasOwn(map.rooms, key)) return;
   const id = Number(key);
   if (rooms.has(id)) rooms.delete(id);
   else rooms.add(id);
@@ -1118,7 +1129,7 @@ function render(data, keepAlignment = false) {
   byId('connection').dataset.online = String(online);
   label(byId('connection'), online ? 'На связи' : 'Нет связи');
   label(byId('model'), typeof data.model === 'string' && data.model ? data.model : 'Dreame');
-  label(byId('robot-state'), online ? stateLabel(data.state) : '—');
+  label(byId('robot-state'), online ? (data.state_title || data.state || '—') : '—');
   const battery = online && Number.isFinite(data.battery) && data.battery >= 0 && data.battery <= 100 ? data.battery : null;
   label(byId('battery'), battery === null ? '—' : `${numbers.format(battery)} %`);
   byId('battery-fill').style.width = `${battery ?? 0}%`;
@@ -1296,7 +1307,7 @@ async function send(action, scenario = null) {
       const areas = job.zones || (job.zone ? [job.zone] : []);
       const areaText = areas.map(([x1, y1, x2, y2], index) => `Зона ${index + 1} · (${x1}, ${y1}) → (${x2}, ${y2})`);
       const confirmed = await confirmMessage('Подтвердите команду',
-        scenario?.confirmation ?? (action === 'start' ? [`Начать уборку? ${targetText()}.${modeText}`, ...areaText].join('\n') : motionLabels[action]));
+        scenario?.confirmation ?? (action === 'start' ? [`Начать уборку? ${targetText()}.${modeText}`, ...areaText, ...(job.kind === 'zone' ? [tuningSummary(job)] : [])].join('\n') : motionLabels[action]));
       confirmingZone = false;
       if (!confirmed) return;
     }
@@ -1342,7 +1353,11 @@ forgetRequest.addEventListener('click', async () => {
   }
 });
 
-form.addEventListener('submit', event => { event.preventDefault(); void send('start'); });
+form.addEventListener('submit', event => {
+  event.preventDefault();
+  if (scenarioPanel?.editing()) void scenarioPanel.saveEditor();
+  else void send('start');
+});
 motion.addEventListener('click', event => {
   const action = event.target.closest('button[data-action]')?.dataset.action;
   if (action) void send(action);
@@ -1352,12 +1367,22 @@ if (retry) notify('Исход предыдущей команды неизвес
 scenarioPanel = scenarios({
   map: () => map, online: () => telemetry.online === true, busy: () => busy || Boolean(drag) || Boolean(preferenceBusy) || modal.open,
   zones: () => target === 'zone' ? jobZones() : null,
-  pick: saved => {
+  tuning, summary: tuningSummary,
+  draft: () => ({target, zones:zones.map(z => [...z]), selected:selectedZone, tuning:tuning()}),
+  restore: draft => {
+    stopZoneDrag();
+    zones = draft.zones;
+    selectZone(draft.selected);
+    zoneEpoch++;
+    applyTuning(draft.tuning);
+    changeTarget(draft.target);
+  },
+  pick: (saved, settings, editing) => {
+    applyTuning(settings);
     changeTarget('zone');
-    if (saved && !replaceZoneDraft(saved)) return false;
-    byId('map').scrollIntoView({block: 'center'});
-    notify(saved ? 'Зоны входа выбраны. Проверьте их на карте и нажмите «Начать уборку».'
-      : 'Обведите участок у входа, затем нажмите «Сохранить выделение» в сценариях.', false);
+    if (!replaceZoneDraft(saved)) return false;
+    byId('map').scrollIntoView({block:'center'});
+    if (!editing) notify('Сценарий «Песок у входа» загружен. Проверьте параметры и нажмите «Начать уборку».', false);
     return true;
   },
   writable: () => telemetry.allow_commands === true, confirm: confirmMessage, send: scene => send('start', scene),

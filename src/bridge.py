@@ -12,7 +12,7 @@ from entrance import Entrance
 from history_map import history_position, render_history
 from history_media import obstacle_photo, obstacles
 from jobs import ACTIVE, PAUSED, Jobs, _normalize
-from mqtt_namespace import CHANNELS, OWNER_FILE, RetainedSession, encode, lock_namespace, read_owner
+from mqtt_namespace import CHANNELS, OWNER_FILE, ROOM_CHANNELS, STATE_LABELS, SUFFIXES, RetainedSession, encode, lock_namespace, read_owner, room_meta
 from overlays import live_room_outcomes, read_overlays
 from preferences import apply_preference
 from panel import interactive_map, map_snapshot, render_map_frame
@@ -36,6 +36,7 @@ class Bridge:
         self.cloud = None
         self.map_key = None
         self.map_frame = None
+        self.room_channels = {}
         self.title = "Dreame"
         self.io_lock = threading.Lock()
         self.allow_commands = False
@@ -54,6 +55,8 @@ class Bridge:
             self.mqtt.close()
         self.mqtt = RetainedSession()
         self.mqtt.claim(STATE, self.title)
+        self.room_channels = {name: None for name in ROOM_CHANNELS
+                              if any(f"/controls/{name}{suffix}" in self.mqtt.snapshot for suffix in SUFFIXES)}
         self.mqtt.start_watch(self.refresh.set)
         self.map_frame = None
         self.offline("Ожидание данных")
@@ -62,9 +65,10 @@ class Bridge:
         self.room_names.publish(None)
         self.latest = {**self.latest, "online": False, "state": status, "map": None, "_live_plan": None,
                        "tracking_active": False, "overlays": [], "camera": {}, "cleangenius": None}
-        for name in CHANNELS:
+        for name in (*CHANNELS, *self.room_channels):
             if name not in ("state_connection", "map_frame"):
                 self.pub("/controls/" + name + "/meta/error", "r")
+        self.room_channels = dict.fromkeys(self.room_channels)
         self.publish_map(None)
         self.pub("/meta/error", "r")
         return self.pub("/controls/state_connection", status)
@@ -93,9 +97,26 @@ class Bridge:
             else:
                 self.pub(topic + "/meta/error", "")
                 self.pub(topic, str(value))
+        self.publish_room_channels(self.latest["map"])
         self.publish_map(data.get("saved_map"))
         self.pub("/meta/error", "")
         self.pub("/controls/state_connection", "На связи")
+
+    def publish_room_channels(self, plan):
+        aliases = self.room_names.for_map(plan)
+        names = {f"room_{room}": aliases.get(room, {}).get("alias") or title
+                 for room, title in (plan or {}).get("rooms", {}).items() if f"room_{room}" in ROOM_CHANNELS}
+        for channel in self.room_channels.keys() - names.keys():
+            for suffix in SUFFIXES:
+                self.pub(f"/controls/{channel}{suffix}", "")
+        for channel, value in names.items():
+            if self.room_channels.get(channel) != value:
+                topic = f"/controls/{channel}"
+                if self.room_channels.get(channel) is None:
+                    self.pub(topic + "/meta", room_meta(ROOM_CHANNELS[channel]))
+                self.pub(topic + "/meta/error", "")
+                self.pub(topic, value)
+        self.room_channels = names
 
     def publish_map(self, saved):
         snapshot = map_snapshot(saved)
@@ -149,7 +170,7 @@ class Bridge:
         reclean_attempt = self.jobs.reclean_attempt(report["timestamp"]) if self.jobs and report else None
         if plan:
             plan = {key: value for key, value in plan.items() if key not in ("_room_keys", "_footprint_bits")}
-        return {**latest, "model": self.title, "allow_commands": self.commands_enabled(),
+        return {**latest, "state_title": STATE_LABELS.get(latest["state"], latest["state"]), "model": self.title, "allow_commands": self.commands_enabled(),
                 "map": plan, "overlays": overlays, "live_frame_at_ms": frame_time, "live_room_id": room_id,
                 "live_room_status": room_status,
                 "last_job": last, "underlay": drawing, "room_names": names,
@@ -372,6 +393,8 @@ class Bridge:
             server.server_close()
             if self.mqtt:
                 try:
+                    # Older releases can claim only the original seven controls after a downgrade.
+                    self.publish_room_channels(None)
                     stopped = self.offline("Служба остановлена")
                     if stopped is not None:
                         stopped.wait_for_publish(timeout=2)

@@ -54,6 +54,14 @@ def _compatible(item, plan):
         return False
 
 
+def _settings(value):
+    limits = {"suction": (0, 3), "water": (1, 3), "repeats": (1, 3)}
+    if (not isinstance(value, dict) or value.keys() - limits.keys()
+            or any(not integer(v, *limits[key]) for key, v in value.items())):
+        raise Refused("Проверьте мощность, подачу воды и число проходов в сценарии.")
+    return {"repeats": 1, **value}
+
+
 class Entrance:
     def __init__(self, path):
         self.path = path
@@ -79,13 +87,13 @@ class Entrance:
                 and item["map_id"] == plan["id"] and _compatible(item, plan))
         result = {"version": _fingerprint(item), "status": "ready" if same else "stale"}
         if same:
-            result["zones"] = item["zones"]
+            result.update(zones=item["zones"], settings=_settings(item.get("settings", {})))
         return result
 
     def save(self, device_id, plan, displayed, data):
         if not device_id or not plan or not displayed:
             raise Refused("Дождитесь связи с пылесосом и его карты.")
-        if (set(data) != {"version", "map_id", "revision", "zones"}
+        if (set(data) - {"settings"} != {"version", "map_id", "revision", "zones"}
                 or not integer(data["map_id"], 1, 2**31-1) or data["map_id"] != displayed["id"]
                 or data["revision"] != displayed["revision"]):
             raise Refused("Карта изменилась. Выберите участок у входа заново.")
@@ -107,5 +115,8 @@ class Entrance:
             saved["geometry"] = geometry
         elif "geometry_key" in plan:
             raise Refused("Привязка к карте не подтверждена. Обновите карту и выберите участок у входа заново.")
+        # A preview22 client only edits the shapes. Preserve a newer client's tuning.
+        existing = self._read() if data["version"] is not None else None
+        saved["settings"] = _settings(data.get("settings", (existing or {}).get("settings", {})))
         atomic(self.path, saved)
         return self.view(device_id, plan)

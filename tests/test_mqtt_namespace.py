@@ -101,6 +101,37 @@ class RetainedNamespaceTest(unittest.TestCase):
         self.assertEqual(foreign, {"/controls/fw/meta": (b"other driver", ())})
         self.assertTrue(unknown)
 
+    def test_room_rows_aliases_reconnect_and_foreign_ownership(self):
+        from bridge import Bridge
+
+        bridge = Bridge()
+        bridge.mqtt = self.session()
+        bridge.mqtt.claim(self.state, bridge.title, self.port)
+        plan = {"rooms": {"2": "Hall", "8": "Kitchen"}}
+        with patch.object(bridge.room_names, "for_map", return_value={"2": {"alias": "Прихожая"}}):
+            bridge.publish_room_channels(plan)
+        bridge.mqtt.fence()
+        current, unknown = self.snapshot()
+        self.assertFalse(unknown)
+        self.assertTrue(json.loads(current["/controls/rooms/meta"][0])["hidden"])
+        self.assertEqual(json.loads(current["/controls/room_2/meta"][0])["order"], 12)
+        self.assertEqual(current["/controls/room_2"][0].decode(), "Прихожая")
+        bridge.offline("Ожидание данных")
+        bridge.mqtt.fence()
+        self.assertEqual(self.snapshot()[0]["/controls/room_2/meta/error"][0], b"r")
+        bridge.publish_room_channels({"rooms": {"2": "Hall"}})
+        bridge.mqtt.fence()
+        current, _ = self.snapshot()
+        self.assertNotIn("/controls/room_8/meta", current)
+        self.assertNotIn("/controls/room_8", current)
+        self.assertNotIn("/controls/room_2/meta/error", current)
+        self.assertEqual(current["/controls/room_2"][0], b"Hall")
+        bridge.mqtt.close()
+        self.claim()
+        self.publish("/controls/room_8", "foreign")
+        with self.assertRaisesRegex(Refused, "занят"):
+            self.claim()
+
     def test_live_collision_stops_publications(self):
         writer = self.session()
         writer.claim(self.state, "Dreame", self.port)
@@ -114,7 +145,7 @@ class RetainedNamespaceTest(unittest.TestCase):
         self.assertEqual(current["/controls/state_robot"], (b"foreign", ()))
 
     def test_only_preview17_upgrade_may_adopt_complete_legacy_metadata(self):
-        legacy = metadata("Dreame L40s Pro Ultra")
+        legacy = metadata("Dreame L40s Pro Ultra", preview17=True)
         for topic, payload in legacy.items():
             self.publish(topic, payload)
         self.publish("/controls/level_battery", "97")

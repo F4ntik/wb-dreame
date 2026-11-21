@@ -25,25 +25,77 @@ CHANNELS = {
     "rooms": ("Комнаты карты", "Map Rooms", "text"),
     "map_frame": ("Изображение карты", "Map frame", "text"),
 }
-TOPICS = frozenset(("/meta", "/meta/error")) | {
-    "/controls/" + name + suffix for name in CHANNELS for suffix in ("", "/meta", "/meta/error")
+STATE_LABELS = {
+    "SHORTCUT": "Выполняет сценарий",
+    "SECOND_CLEANING": "Доубирает",
+    "EXTRA_CLEANING": "Повторная уборка",
+    "CHARGING_COMPLETED": "Зарядка завершена",
+    "CHARGING": "Зарядка",
+    "IDLE": "Ожидание",
+    "SWEEPING": "Подметает",
+    "MOPPING": "Моет пол",
+    "SWEEPING_AND_MOPPING": "Убирает и моет пол",
+    "CLEANING": "Уборка",
+    "SPOT_CLEANING": "Убирает участок",
+    "PAUSED": "Пауза",
+    "RETURNING": "Возвращается на базу",
+    "ERROR": "Ошибка",
+    "WASHING": "Моет салфетки",
+    "DRYING": "Сушит салфетки",
+    "AUTO_EMPTYING": "Очищает контейнер",
+    "SMART_CHARGING": "Зарядка по расписанию",
+    "BUILDING": "Строит карту",
+    "WAITING_FOR_TASK": "Ожидает задание",
+    "UNKNOWN": "Неизвестно",
+    "RETURNING_TO_WASH": "Едет мыть салфетки",
+    "UPGRADING": "Обновляет прошивку",
+    "WASHING_PAUSED": "Промывка на паузе",
+    "REMOTE_CONTROL": "Ручное управление",
+    "STATION_CLEANING": "Очищает станцию",
+    "RETURNING_AUTO_EMPTY": "Возвращается для очистки",
+    "RETURNING_TO_DRAIN": "Возвращается для слива",
+    "RETURNING_INSTALL_MOP": "Едет за салфетками",
+    "RETURNING_REMOVE_MOP": "Едет снять салфетки",
+    "EMPTYING": "Опустошает контейнер",
+    "DRAINING": "Сливает воду",
+    "DUST_BAG_DRYING": "Сушит мешок",
+    "INITIAL_DEEP_CLEANING": "Глубокая уборка",
+    "STATION_RESET": "Сброс станции",
+    "AUTO_WATER_DRAINING": "Автоматический слив",
+    "CHANGING_MOP": "Меняет салфетки",
+    "INSTALLING_MOP": "Устанавливает салфетки",
+    "UNINSTALLING_MOP": "Снимает салфетки",
 }
+ROOM_CHANNELS = {f"room_{n}": n for n in range(1, 64)}
+SUFFIXES = ("", "/meta", "/meta/error")
+LEGACY_TOPICS = {"/meta", "/meta/error"} | {
+    "/controls/" + name + suffix for name in CHANNELS for suffix in SUFFIXES
+}
+TOPICS = LEGACY_TOPICS | {"/controls/" + name + suffix for name in ROOM_CHANNELS for suffix in SUFFIXES}
 
 
 def encode(value):
     return json.dumps(value, ensure_ascii=False, separators=(",", ":"))
 
 
-def metadata(title):
+def metadata(title, *, preview17=False):
     topics = {"/meta": encode({"driver": "wb-mqtt-dreame", "title": {"ru": title, "en": title}})}
     for order, (name, (ru, en, kind)) in enumerate(CHANNELS.items(), 1):
         meta = {"type": kind, "readonly": True, "order": order, "title": {"ru": ru, "en": en}}
+        if name == "state_robot" and not preview17:
+            meta["enum"] = {key: {"ru": value, "en": key.replace("_", " ").capitalize()}
+                            for key, value in STATE_LABELS.items()}
         if name == "level_battery":
             meta.update(units="%", min=0, max=100)
-        if name == "map_frame":
+        if name == "map_frame" or name == "rooms" and not preview17:
             meta["hidden"] = True
         topics["/controls/" + name + "/meta"] = encode(meta)
     return topics
+
+
+def room_meta(number):
+    return encode({"type": "text", "readonly": True, "order": 10 + number,
+                   "title": {"ru": f"Комната №{number}", "en": f"Room #{number}"}})
 
 
 @contextmanager
@@ -227,11 +279,11 @@ class RetainedSession:
         legacy_flag.unlink(missing_ok=True)
 
     def matches_preview(self, legacy):
-        if any(tag != () for _, tag in legacy.values()):
+        if legacy.keys() - LEGACY_TOPICS or any(tag != () for _, tag in legacy.values()):
             return False
         # Only a dpkg upgrade from preview17 may adopt its complete metadata fingerprint.
         return any(all(self.snapshot.get(topic, (None,))[0] == payload.encode()
-                       for topic, payload in metadata(title).items())
+                       for topic, payload in metadata(title, preview17=True).items())
                    for title in {*MODELS.values(), "Dreame"})
 
     def start_watch(self, wake):

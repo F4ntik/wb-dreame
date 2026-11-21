@@ -85,6 +85,25 @@
       </section>
 
       <section class="card job-card" aria-labelledby="job-title">
+        <details id="scenario-panel" class="scenario-panel">
+          <summary>Сценарии уборки</summary>
+          <div class="scenario-content">
+            <section aria-labelledby="entrance-title">
+              <h3 id="entrance-title">Песок у входа</h3>
+              <p id="entrance-note" class="muted"></p>
+              <div class="scenario-buttons">
+                <button id="entrance-apply" type="button" hidden>Подготовить уборку</button>
+                <button id="entrance-edit" type="button">Настроить сценарий</button>
+              </div>
+            </section>
+            <section aria-labelledby="dreame-scenes-title">
+              <div class="section-heading"><h3 id="dreame-scenes-title">Из Dreamehome</h3><button type="button" id="scene-refresh">Обновить</button></div>
+              <p class="muted field-hint">Состав и параметры этих сценариев задаются в приложении Dreamehome.</p>
+              <div id="scene-items" class="scenario-buttons"></div>
+            </section>
+            <p id="scene-message" class="muted" role="status" hidden></p>
+          </div>
+        </details>
         <header class="section-heading job-heading"><h2 id="job-title">Задание уборки</h2><p id="command-state" class="muted">Просмотр</p></header>
         <div id="cleaning-mode" hidden>
           <p id="cleaning-mode-readonly" class="field-hint" hidden></p>
@@ -118,36 +137,23 @@
             </div>
           </fieldset>
           <fieldset id="tuning" hidden>
-            <legend>Параметры уборки</legend>
+            <legend id="tuning-title">Параметры задания</legend>
             <div class="form-grid tuning">
               <label>Всасывание<select id="suction"><option value="">Как у робота</option><option value="0">0 · тихое</option><option value="1">1 · обычное</option><option value="2">2 · сильное</option><option value="3">3 · максимальное</option></select></label>
               <label>Подача воды<select id="water"><option value="">Как у робота</option><option value="1">1 · низкая</option><option value="2">2 · средняя</option><option value="3">3 · высокая</option></select></label>
               <label>Проходы<select id="repeats"><option value="1">1</option><option value="2">2</option><option value="3">3</option></select></label>
             </div>
-            <p class="muted field-hint">Это параметры задания. Текущие параметры робота приведены ниже, если получены от него.</p>
+            <p id="tuning-hint" class="muted field-hint">Действуют для этого запуска.</p>
           </fieldset>
+          <div id="entrance-editor-actions" hidden>
+            <button id="entrance-save" type="button" class="primary">Сохранить сценарий</button>
+            <button id="entrance-cancel" type="button">Отмена</button>
+            <p id="entrance-editor-status" class="muted field-hint" role="status"></p>
+          </div>
           <p id="target-summary" class="muted target-summary" aria-live="polite">Вся доступная площадь</p>
           <button id="submit-job" type="submit" class="primary" disabled>Проверить задание</button>
           <p id="submit-hint" class="muted field-hint">Робот должен быть на связи.</p>
         </form>
-        <details id="scenario-panel" class="scenario-panel">
-          <summary>Сценарии уборки</summary>
-          <div class="scenario-content">
-            <section aria-labelledby="entrance-title">
-              <h3 id="entrance-title">Песок у входа</h3>
-              <p id="entrance-note" class="muted"></p>
-              <div class="scenario-buttons">
-                <button id="entrance-apply" type="button">Выбрать зону входа</button>
-                <button id="entrance-save" type="button" hidden>Сохранить выделение</button>
-              </div>
-            </section>
-            <section aria-labelledby="dreame-scenes-title">
-              <div class="section-heading"><h3 id="dreame-scenes-title">Из Dreamehome</h3><button type="button" id="scene-refresh">Обновить</button></div>
-              <div id="scene-items" class="scenario-buttons"></div>
-            </section>
-            <p id="scene-message" class="muted" role="status" hidden></p>
-          </div>
-        </details>
         <div id="motion-controls" class="motion-controls" hidden aria-label="Управление уборкой">
           <button type="button" data-action="pause">Пауза</button>
           <button type="button" data-action="resume">Продолжить</button>

@@ -80,3 +80,24 @@ class ScenariosTest(unittest.TestCase):
             with self.assertRaises(Refused):
                 entrance.save("one",self.plan,self.plan,update)
         self.assertEqual(entrance.view("one",self.plan),original)
+
+    def test_scenario_tuning_round_trip_and_older_editor(self):
+        path = Path(self.dir.name) / "entrance.json"
+        store = Entrance(path)
+        body = {"version": None, "zones": [[0, 0, 200, 200]], "map_id": 12, "revision": self.plan["revision"]}
+        tuned = {"suction": 0, "water": 2, "repeats": 3}
+        saved = store.save("one", self.plan, self.plan, {**body, "settings": tuned})
+        self.assertEqual(Entrance(path).view("one", self.plan)["settings"], tuned)
+        edited = {**body, "version": saved["version"], "zones": [[50, 0, 250, 200]]}
+        old_client = store.save("one", self.plan, self.plan, edited)
+        self.assertEqual(old_client["settings"], tuned)
+        edited["version"] = old_client["version"]
+        for invalid in ({"suction": True}, {"water": 0}, {"repeats": 4}, {"mode": 2}, [], None):
+            with self.subTest(invalid=invalid), self.assertRaises(Refused):
+                store.save("one", self.plan, self.plan, {**edited, "settings": invalid})
+        inherited = store.save("one", self.plan, self.plan, {**edited, "settings": {}})
+        self.assertEqual(inherited["settings"], {"repeats": 1})
+        item = json.loads(path.read_text(encoding="utf8"))
+        del item["settings"]
+        path.write_text(json.dumps(item), encoding="utf8")
+        self.assertEqual(store.view("one", self.plan)["settings"], {"repeats": 1})

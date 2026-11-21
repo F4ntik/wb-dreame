@@ -12,28 +12,32 @@ async function fetchScenario(path, body) {
 
 export function scenarios(ui) {
   const host = byId('scenario-panel'), list = byId('scene-items'), feedback = byId('scene-message');
-  const apply = byId('entrance-apply'), save = byId('entrance-save'), note = byId('entrance-note');
+  const apply = byId('entrance-apply'), edit = byId('entrance-edit'), save = byId('entrance-save'), note = byId('entrance-note');
   const refresh = byId('scene-refresh');
-  let entrance, pending = false;
+  let entrance, editor, pending = false;
+  const status = byId('entrance-editor-status');
 
   function report(text) {
+    if (editor) status.textContent = text;
     feedback.textContent = text;
     feedback.hidden = !text;
   }
   function render() {
-    if (!host.open) return;
     const disabled = !ui.online() || !ui.map() || ui.busy() || pending;
-    apply.disabled = disabled || !entrance;
-    save.hidden = !entrance || !ui.zones();
-    save.disabled = disabled;
+    apply.hidden = entrance?.status !== 'ready';
+    apply.disabled = edit.disabled = disabled || !entrance;
+    save.disabled = disabled || !editor || !ui.zones()?.length;
+    byId('entrance-cancel').disabled = pending;
+    if (!host.open) return;
     refresh.disabled = disabled;
     for (const button of list.querySelectorAll('button')) {
       button.disabled = disabled || button.dataset.map !== String(ui.map()?.id);
     }
-    apply.textContent = entrance?.status === 'ready' ? 'Показать зоны на карте' : 'Указать участок на карте';
-    note.textContent = entrance?.status === 'stale' ? 'Карта изменилась. Обведите участок у входа заново.'
-      : entrance?.status === 'ready' ? 'Сохранено зон: ' + entrance.zones.length
-      : 'Обведите на карте участок, где скапливается песок.';
+    edit.textContent = entrance?.status === 'ready' ? 'Изменить сценарий' : 'Настроить сценарий';
+    note.textContent = entrance?.status === 'stale' ? 'Карта изменилась. Выберите участок заново.'
+      : entrance?.status === 'ready' ? `Зон: ${entrance.zones.length} · ${ui.summary(entrance.settings)}`
+      : 'Сохраните на WB зоны у входа, мощность, воду и число проходов.';
+
   }
   async function run(work) {
     if (pending || ui.busy() || !ui.online()) return;
@@ -71,21 +75,50 @@ export function scenarios(ui) {
   }
   host.addEventListener('toggle', () => { if (host.open) void load(); });
   refresh.addEventListener('click', load);
-  apply.addEventListener('click', () => run(async () => {
-    entrance = await fetchScenario('entrance');
-    if (entrance.status === 'ready' && (ui.map()?.revision !== entrance.revision || ui.map()?.id !== entrance.map_id))
-      throw new Error('Карта изменилась. Обновите панель.');
-    ui.pick(entrance.status === 'ready' ? entrance.zones : null);
-  }));
-  save.addEventListener('click', () => run(async () => {
-    const map = ui.map(), zones = ui.zones();
-    if (!map || !zones?.length || !entrance) return;
-    if (entrance.version && !await ui.confirm('Заменить участок у входа?',
-        'Сохранить текущее выделение для сценария «Песок у входа»?', 'Заменить')) return;
-    if (ui.map()?.revision !== map.revision || JSON.stringify(ui.zones()) !== JSON.stringify(zones))
-      throw new Error('Выделение изменилось. Проверьте зоны ещё раз.');
-    entrance = await fetchScenario('entrance',{version:entrance.version, map_id:map.id, revision:map.revision, zones});
-    report('Участок сохранён на контроллере.');
-  }));
-  return {render};
+  async function openEntrance(editing) {
+    await run(async () => {
+      entrance = await fetchScenario('entrance');
+      const map = ui.map(), ready = entrance.status === 'ready';
+      if (!map || (ready && (map.revision !== entrance.revision || map.id !== entrance.map_id)))
+        throw new Error('Карта изменилась. Обновите панель.');
+      if (!editing && !ready) throw new Error('Сначала настройте сценарий.');
+      if (editing) {
+        editor = {version: entrance.version, id: map.id, revision: map.revision, previous: ui.draft()};
+        status.textContent = 'Изменения сохраняются кнопкой «Сохранить сценарий».';
+      }
+      if (!ui.pick(ready ? entrance.zones : [], ready ? entrance.settings : {}, editing)) {
+        if (editing) endEditor('');
+        throw new Error('Зоны не совпадают с картой. Обновите панель.');
+      }
+    });
+  }
+  function endEditor(message, restore = true) {
+    const previous = editor?.previous;
+    editor = null;
+    if (previous && restore) ui.restore(previous);
+    report(message);
+  }
+  async function saveEditor() {
+    if (!editor) return;
+    await run(async () => {
+      const map = ui.map(), zones = ui.zones(), current = editor;
+      if (!map || !zones?.length || !current || current.id !== map.id || current.revision !== map.revision)
+        throw new Error('Карта изменилась. Откройте сценарий заново.');
+      const controls = [byId('map'), byId('job-form')];
+      controls.forEach(el => { el.inert = true; });
+      try {
+        entrance = await fetchScenario('entrance', {version:current.version, map_id:map.id, revision:map.revision,
+          zones, settings:ui.tuning()});
+      } finally { controls.forEach(el => { el.inert = false; }); }
+      if (current !== editor) return;
+      endEditor('«Песок у входа» сохранён на контроллере.');
+      edit.focus();
+    });
+  }
+  edit.addEventListener('click', () => openEntrance(true));
+  apply.addEventListener('click', () => openEntrance(false));
+  save.addEventListener('click', saveEditor);
+  byId('entrance-cancel').addEventListener('click', () => { endEditor('Изменения отменены.'); edit.focus(); });
+  return {render, editing: () => Boolean(editor), saveEditor,
+    mapChanged() { if (editor) endEditor('Карта изменилась. Откройте сценарий заново.', false); }};
 }
