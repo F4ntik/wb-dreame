@@ -131,7 +131,7 @@ class DetailsTest(unittest.TestCase):
         robot.device = device
         result = robot.observe()
         self.assertEqual(result["battery"], 84)
-        self.assertEqual(result["details"]["metrics"], [{"label": "Станция", "value": "Ожидание"}])
+        self.assertEqual(result["details"]["metrics"], [{"key": "self_wash_base_status", "label": "Станция", "value": "Ожидание"}])
         device._protocol.get_properties.assert_called_once()
         args, kwargs = device._protocol.get_properties.call_args
         self.assertEqual(kwargs, {"retry_count": 0, "timeout": 6})
