@@ -10,32 +10,65 @@
   <script type="module" src="./schedules.js"></script>
 </head>
 <body>
-  <main class="shell">
-    <a id="back-link" class="back" href="/#/dashboards/svg/view/dreame-control">← Панель Wiren Board</a>
-    <header class="page-header">
-      <div><h1>Пылесос</h1><p id="model" class="muted">Dreame</p></div>
-      <p id="connection" class="connection" data-online="false" role="status">Получаем состояние</p>
-    </header>
-
-    <div class="view-tabs" role="tablist" aria-label="Разделы пылесоса">
-      <button type="button" role="tab" id="tab-map" aria-controls="view-map" aria-selected="true" tabindex="0" data-glyph="map">Карта</button>
-      <button type="button" role="tab" id="tab-history" aria-controls="view-history" aria-selected="false" tabindex="-1" data-glyph="history">История</button>
-      <button type="button" role="tab" id="tab-resources" aria-controls="view-resources" aria-selected="false" tabindex="-1" data-glyph="resources">Ресурсы</button>
-      <button type="button" role="tab" id="tab-schedules" aria-controls="view-schedules" aria-selected="false" tabindex="-1" data-glyph="schedules">Расписание</button>
-      <button type="button" role="tab" id="tab-settings" aria-controls="view-settings" aria-selected="false" tabindex="-1" data-glyph="settings">Настройки</button>
-    </div>
-
+  <div class="shell">
+    <aside class="sidebar" aria-label="Пылесос и навигация">
+      <header class="device-heading">
+        <span class="device-mark" data-icon="device" aria-hidden="true"></span>
+        <div><h1>Пылесос</h1><p id="model" class="muted">Dreame</p></div>
+      </header>
+      <p id="connection" class="connection" role="status">Подключение…</p>
+      <div class="view-tabs" role="tablist" aria-label="Разделы пылесоса">
+        <button type="button" role="tab" id="tab-map" aria-controls="view-map" aria-selected="true" tabindex="0" data-glyph="map">Карта</button>
+        <button type="button" role="tab" id="tab-scenarios" aria-controls="view-scenarios" aria-selected="false" tabindex="-1" data-glyph="scenarios">Сценарии</button>
+        <button type="button" role="tab" id="tab-schedules" aria-controls="view-schedules" aria-selected="false" tabindex="-1" data-glyph="schedules">Расписание</button>
+        <button type="button" role="tab" id="tab-history" aria-controls="view-history" aria-selected="false" tabindex="-1" data-glyph="history">История</button>
+        <button type="button" role="tab" id="tab-resources" aria-controls="view-resources" aria-selected="false" tabindex="-1" data-glyph="resources">Ресурсы</button>
+        <button type="button" role="tab" id="tab-settings" aria-controls="view-settings" aria-selected="false" tabindex="-1" data-glyph="settings">Настройки</button>
+      </div>
+      <a id="back-link" class="back" href="/#/dashboards/svg/view/dreame-control"><span aria-hidden="true">←</span> Wiren Board</a>
+    </aside>
+    <main class="workspace">
+      <div id="offline-notice" class="offline-notice" hidden>
+        <div role="status"><strong id="offline-title">Нет связи с роботом</strong><p id="offline-message"></p></div>
+        <button id="retry-connection" type="button">Проверить связь</button>
+      </div>
     <div id="view-map" role="tabpanel" aria-labelledby="tab-map">
+      <header class="page-title"><h2 id="map-title">Карта уборки</h2><span id="map-id" class="map-id muted"></span></header>
     <section class="summary" aria-label="Состояние пылесоса">
-      <div><span>Состояние</span><strong id="robot-state">—</strong></div>
-      <div><span>Заряд</span><div class="battery-reading"><strong id="battery">—</strong><span class="battery-gauge" aria-hidden="true"><span id="battery-fill"></span></span></div></div>
-      <div><span>Положение относительно базы</span><strong id="dock-state">—</strong></div>
+      <div><span class="stat-icon" data-icon="robot" aria-hidden="true"></span><div><span>Состояние</span><strong id="robot-state">—</strong></div></div>
+      <div><span class="stat-icon" data-icon="charge" aria-hidden="true"></span><div><span>Заряд</span><div class="battery-reading"><strong id="battery">—</strong><span class="battery-gauge" aria-hidden="true"><span id="battery-fill"></span></span></div></div></div>
+      <div><span class="stat-icon" data-icon="dock" aria-hidden="true"></span><div><span>Положение</span><strong id="dock-state">—</strong></div></div>
     </section>
 
+    <section id="motion-panel" class="motion-strip" aria-label="Команды роботу" hidden>
+      <h3 id="motion-title">Управление уборкой</h3>
+      <div id="motion-controls" class="motion-controls">
+        <button type="button" data-action="pause">Пауза</button>
+        <button type="button" data-action="resume">Продолжить</button>
+        <button type="button" data-action="stop">Остановить</button>
+        <button type="button" data-action="dock">На базу</button>
+      </div>
+    </section>
     <div class="work-area">
       <section class="card map-card" aria-labelledby="map-title">
-        <header class="section-heading"><h2 id="map-title">Карта помещений</h2><p id="map-id" class="muted"></p></header>
-        <p id="map-hint" class="map-hint muted">После загрузки карты здесь появятся комнаты.</p>
+        <div class="map-toolbar">
+          <fieldset id="target-selector" class="target-selector">
+            <legend class="sr-only">Что убрать</legend>
+            <div class="segmented">
+              <label><input type="radio" name="target" form="job-form" value="all" checked><span>Всё</span></label>
+              <label><input type="radio" name="target" form="job-form" value="rooms"><span>Комнаты</span></label>
+              <label><input type="radio" name="target" form="job-form" value="zone"><span>Зоны</span></label>
+            </div>
+          </fieldset>
+          <strong id="map-editor-mode" class="map-editor-mode" hidden><span data-icon="edit" aria-hidden="true"></span>Зоны сценария</strong>
+          <button id="map-layers" class="tool-button" aria-expanded="false" aria-controls="map-layers-panel" type="button" hidden><span data-icon="layers" aria-hidden="true"></span>Слои</button>
+        </div>
+        <div id="map-layers-panel" class="map-layers-panel" hidden>
+          <label id="route-choice" class="underlay-toggle" hidden><input id="route-switch" type="checkbox" role="switch" checked><span>Маршрут уборки</span></label>
+          <div id="live-coverage-control" class="coverage-control" hidden>
+          <label class="underlay-toggle"><input id="live-coverage-switch" type="checkbox" role="switch" aria-describedby="live-coverage-note" checked><span>Убранный пол</span></label>
+          <p id="live-coverage-note" class="muted" role="status"></p>
+        </div>
         <div id="underlay-controls" class="underlay-controls" hidden>
           <label class="underlay-toggle"><input id="underlay-toggle" type="checkbox" role="switch" checked><span>План квартиры</span></label>
           <label class="underlay-range" for="underlay-opacity"><span>Насыщенность комнат</span><input id="underlay-opacity" type="range" min="20" max="80" value="42"><output id="underlay-value" for="underlay-opacity">42 %</output></label>
@@ -58,9 +91,6 @@
             <p id="alignment-result" class="muted field-hint" role="status" hidden></p>
           </details>
         </div>
-        <div class="live-map-status">
-          <p id="live-position" role="status" hidden></p>
-          <time id="live-frame-time" class="muted" hidden></time>
         </div>
         <div id="map" class="map" aria-describedby="map-hint live-position">
           <p class="muted">Карта пока недоступна</p>
@@ -74,59 +104,29 @@
           <ol id="zone-list" class="zone-list" aria-label="Зоны на карте"></ol>
           <button id="undo-zone-removal" type="button" hidden>Вернуть зону</button>
         </div>
+        <p id="map-hint" class="map-hint muted">Загрузка карты…</p>
+        <div class="live-map-status">
+          <p id="live-position" role="status" hidden></p>
+          <time id="live-frame-time" class="muted" hidden></time>
+        </div>
         <div id="map-legend" class="map-legend" aria-label="Обозначения карты"></div>
         <div id="live-room-statuses" class="map-legend" aria-label="Статусы комнат"></div>
-        <button id="latest-cleaning-map" class="map-history-link" type="button" aria-haspopup="dialog" aria-controls="history-dialog" hidden>Карта последней уборки</button>
-        <div id="live-coverage-control" class="coverage-control" hidden>
-          <label class="underlay-toggle"><input id="live-coverage-switch" type="checkbox" role="switch" aria-describedby="live-coverage-note" checked><span>Убранный пол</span></label>
-          <p id="live-coverage-note" class="muted" role="status"></p>
+        <div class="map-footer">
+          <button id="latest-cleaning-map" class="text-button" type="button" aria-haspopup="dialog" aria-controls="history-dialog" hidden><span data-icon="history" aria-hidden="true"></span>Карта последней уборки</button>
+          <button id="to-job" class="text-button" type="button">К заданию ↓</button>
         </div>
-        <div id="room-list" class="room-list" role="group" aria-label="Комнаты на карте"></div>
-        <div class="reclean-controls">
-          <button id="reclean" type="button" aria-describedby="reclean-hint" disabled>Доубрать</button>
-          <p id="reclean-hint" class="muted">Ждём последнего отчёта Dreamehome.</p>
-        </div>
-        <p id="reclean-result" class="job-result" role="status" hidden></p>
       </section>
 
       <section class="card job-card" aria-labelledby="job-title">
-        <details id="scenario-panel" class="scenario-panel">
-          <summary>Сценарии уборки</summary>
-          <div class="scenario-content">
-            <section aria-labelledby="entrance-title">
-              <h3 id="entrance-title">Песок у входа</h3>
-              <p id="entrance-note" class="muted"></p>
-              <div class="scenario-buttons">
-                <button id="entrance-apply" type="button" hidden>Подготовить уборку</button>
-                <button id="entrance-edit" type="button">Настроить сценарий</button>
-              </div>
-            </section>
-            <section aria-labelledby="dreame-scenes-title">
-              <div class="section-heading"><h3 id="dreame-scenes-title">Из Dreamehome</h3><button type="button" id="scene-refresh">Обновить</button></div>
-              <p class="muted field-hint">Состав и параметры этих сценариев задаются в приложении Dreamehome.</p>
-              <div id="scene-items" class="scenario-buttons"></div>
-            </section>
-            <p id="scene-message" class="muted" role="status" hidden></p>
-          </div>
-        </details>
-        <header class="section-heading job-heading"><h2 id="job-title">Задание уборки</h2><p id="command-state" class="muted">Просмотр</p></header>
-        <div id="cleaning-mode" hidden>
-          <p id="cleaning-mode-readonly" class="field-hint" hidden></p>
-          <div id="cleaning-mode-options"></div>
-          <p class="muted field-hint">CleanGenius меняет режим самого пылесоса.</p>
-          <p id="cleaning-mode-result" class="job-result" role="status" hidden></p>
+        <header class="job-heading"><h3 id="job-title" tabindex="-1">Задание уборки</h3><p id="command-state" class="muted" hidden></p></header>
+        <p id="target-summary" class="target-summary" aria-live="polite">Вся доступная площадь</p>
+        <div id="room-choices" hidden>
+        <div id="room-list" class="room-list" role="group" aria-label="Комнаты на карте"></div>
         </div>
         <form id="job-form">
-          <fieldset class="target-selector">
-            <legend>Что убрать</legend>
-            <div class="segmented">
-              <label><input type="radio" name="target" value="all" checked><span>Всё</span></label>
-              <label><input type="radio" name="target" value="rooms"><span>Комнаты</span></label>
-              <label><input type="radio" name="target" value="zone"><span>Зоны</span></label>
-            </div>
-          </fieldset>
           <fieldset id="zone-fields" hidden>
             <legend>Зоны на карте</legend>
+            <details id="zone-coordinates" class="coordinates"><summary>Ввести координаты</summary>
             <p id="zone-edit-hint" class="muted field-hint">Укажите противоположные углы зоны в координатах карты робота.</p>
             <div class="form-grid coords">
               <label>X₁<input id="zone-x1" type="number" step="1" aria-describedby="zone-edit-hint"></label>
@@ -134,6 +134,7 @@
               <label>X₂<input id="zone-x2" type="number" step="1" aria-describedby="zone-edit-hint"></label>
               <label>Y₂<input id="zone-y2" type="number" step="1" aria-describedby="zone-edit-hint"></label>
             </div>
+            </details>
             <p id="zone-measure-summary" class="muted field-hint zone-measure-summary" aria-live="polite" hidden></p>
             <div class="zone-actions">
               <button id="add-zone" type="button">Добавить зону</button>
@@ -144,8 +145,8 @@
           <fieldset id="tuning" hidden>
             <legend id="tuning-title">Параметры задания</legend>
             <div class="form-grid tuning">
-              <label>Всасывание<select id="suction"><option value="">Как у робота</option><option value="0">0 · тихое</option><option value="1">1 · обычное</option><option value="2">2 · сильное</option><option value="3">3 · максимальное</option></select></label>
-              <label>Подача воды<select id="water"><option value="">Как у робота</option><option value="1">1 · низкая</option><option value="2">2 · средняя</option><option value="3">3 · высокая</option></select></label>
+              <label>Всасывание<select id="suction"><option value="">Как у робота</option><option value="0">Тихое</option><option value="1">Обычное</option><option value="2">Сильное</option><option value="3">Максимальное</option></select></label>
+              <label>Подача воды<select id="water"><option value="">Как у робота</option><option value="1">Низкая</option><option value="2">Средняя</option><option value="3">Высокая</option></select></label>
               <label>Проходы<select id="repeats"><option value="1">1</option><option value="2">2</option><option value="3">3</option></select></label>
             </div>
             <p id="tuning-hint" class="muted field-hint">Действуют для этого запуска.</p>
@@ -155,16 +156,10 @@
             <button id="entrance-cancel" type="button">Отмена</button>
             <p id="entrance-editor-status" class="muted field-hint" role="status"></p>
           </div>
-          <p id="target-summary" class="muted target-summary" aria-live="polite">Вся доступная площадь</p>
           <button id="submit-job" type="submit" class="primary" disabled>Проверить задание</button>
           <p id="submit-hint" class="muted field-hint">Робот должен быть на связи.</p>
         </form>
-        <div id="motion-controls" class="motion-controls" hidden aria-label="Управление уборкой">
-          <button type="button" data-action="pause">Пауза</button>
-          <button type="button" data-action="resume">Продолжить</button>
-          <button type="button" data-action="stop">Остановить</button>
-          <button type="button" data-action="dock">На базу</button>
-        </div>
+        <button id="job-mode" type="button" class="text-button" hidden></button>
         <div id="job-result" class="job-result" role="status" hidden></div>
         <button id="forget-request" class="forget-request" type="button" hidden>Сбросить ожидающий запрос</button>
         <p id="last-job" class="last-job muted" hidden></p>
@@ -172,9 +167,40 @@
     </div>
     </div>
 
+    <div id="view-scenarios" role="tabpanel" aria-labelledby="tab-scenarios" hidden>
+      <header class="page-title"><h2>Сценарии</h2><button type="button" class="tool-button" id="scene-refresh"><span data-icon="refresh" aria-hidden="true"></span>Обновить</button></header>
+      <div id="scenario-panel" class="scenario-layout">
+        <section class="card saved-scene" aria-labelledby="entrance-title">
+          <span class="feature-icon" data-icon="entrance" aria-hidden="true"></span>
+          <p class="scene-origin muted">Сценарий контроллера</p>
+          <h3 id="entrance-title">Песок у входа</h3>
+          <p id="entrance-note" class="muted" role="status">Загружаем настройки…</p>
+          <dl id="entrance-values" class="scenario-values" hidden>
+            <div><dt>Всасывание</dt><dd></dd></div>
+            <div><dt>Вода</dt><dd></dd></div>
+            <div><dt>Проходы</dt><dd></dd></div>
+          </dl>
+          <div class="scenario-buttons">
+            <button id="entrance-apply" class="primary" type="button" hidden>Подготовить уборку</button>
+            <button id="entrance-edit" type="button" disabled>Настроить</button>
+          </div>
+        </section>
+        <section class="card cloud-scenes" aria-labelledby="dreame-scenes-title">
+          <h3 id="dreame-scenes-title">Из Dreamehome</h3>
+          <p class="muted field-hint">Этапы и комнаты можно изменить в приложении Dreamehome.</p>
+          <div id="scene-items" class="scene-items"></div>
+        </section>
+      </div>
+      <p id="scene-message" class="job-result" role="status" hidden></p>
+    </div>
     <div id="view-history" role="tabpanel" aria-labelledby="tab-history" hidden>
-      <section id="history-section" class="card journal">
-        <header class="view-heading"><h2>История уборок</h2></header>
+      <header class="page-title"><h2>История уборок</h2></header>
+      <section id="history-section" class="card journal" aria-label="Список уборок">
+        <div class="journal-followup">
+          <div><h3>Последняя уборка</h3><p id="reclean-hint" class="muted">Ждём отчёта пылесоса.</p></div>
+          <button id="reclean" type="button" aria-describedby="reclean-hint" disabled>Доубрать</button>
+        </div>
+        <p id="reclean-result" class="job-result" role="status" hidden></p>
         <div id="history">
           <div id="history-toolbar" class="history-toolbar" hidden>
             <div id="history-total" class="history-total muted" aria-live="polite"></div>
@@ -191,9 +217,9 @@
     </div>
 
     <div id="view-resources" role="tabpanel" aria-labelledby="tab-resources" hidden>
-      <section class="card service-panel" id="metrics">
-        <header class="view-heading">
-          <h2>Ресурсы и состояние</h2>
+      <section class="service-panel" id="metrics">
+        <header class="page-title">
+          <h2>Ресурсы</h2>
           <a id="resource-photo-credit" href="https://ru.dreametech.com/product/robot-pylesos-l40s-pro-ultra/" target="_blank" rel="noopener noreferrer" hidden>Фото Dreame</a>
         </header>
         <dl class="service-totals" id="resource-totals" aria-label="Статистика уборок" hidden></dl>
@@ -231,17 +257,17 @@
 
     <div id="view-schedules" role="tabpanel" aria-labelledby="tab-schedules" hidden>
       <div id="schedules">
-        <div class="schedule-heading">
+        <div class="page-title schedule-heading">
           <div>
             <h2>Расписание</h2>
             <p class="muted">Время указано по часам пылесоса</p>
           </div>
-          <button id="schedules-refresh" type="button">Обновить</button>
+          <button id="schedules-refresh" class="tool-button" type="button"><span data-icon="refresh" aria-hidden="true"></span>Обновить</button>
         </div>
         <p id="schedules-result" class="job-result" role="status" hidden></p>
         <div class="schedule-grid">
           <section id="schedules-cleaning" class="card schedule-card" aria-labelledby="schedules-cleaning-heading" hidden>
-            <h3 id="schedules-cleaning-heading">Уборки</h3>
+            <h3 id="schedules-cleaning-heading"><span data-icon="schedules" aria-hidden="true"></span>Уборки</h3>
             <p id="schedules-cleaning-note" class="muted field-hint"></p>
             <div id="schedules-cleaning-list"></div>
             <form id="schedules-cleaning-form" class="schedule-editor" aria-labelledby="schedules-cleaning-title" hidden>
@@ -275,7 +301,7 @@
             </form>
           </section>
           <section id="schedules-charging" class="card schedule-card" aria-labelledby="schedules-charging-heading" hidden>
-            <h3 id="schedules-charging-heading">Зарядка в непиковые часы</h3>
+            <h3 id="schedules-charging-heading"><span data-icon="charge" aria-hidden="true"></span>Непиковая зарядка</h3>
             <div id="schedules-charging-summary" class="schedule-row" hidden>
               <div>
                 <div id="schedules-charging-time" class="schedule-time"></div>
@@ -305,15 +331,24 @@
     </div>
 
     <div id="view-settings" role="tabpanel" aria-labelledby="tab-settings" hidden>
-      <details class="card detail-card">
-        <summary>Текущие настройки</summary>
+      <header class="page-title"><h2>Настройки</h2></header>
+      <div class="settings-grid">
+      <section class="card settings-card" aria-label="Настройки робота">
+        <h3>Параметры робота</h3>
+        <div id="cleaning-mode" hidden>
+          <p id="cleaning-mode-readonly" class="field-hint" hidden></p>
+          <div id="cleaning-mode-options"></div>
+          <p class="muted field-hint">Этот режим сохраняется в пылесосе и влияет на следующие уборки.</p>
+          <p id="cleaning-mode-result" class="job-result" role="status" hidden></p>
+        </div>
+
         <dl id="settings" class="detail-content records"></dl>
         <div id="preferences" class="detail-content" hidden>
           <p id="preference-hint" class="muted field-hint"></p>
           <div id="preference-list"></div>
           <p id="preference-result" class="job-result" role="status" hidden></p>
         </div>
-      </details>
+      </section>
       <details id="camera-section" class="card detail-card" hidden>
         <summary>Камера пылесоса</summary>
         <div class="detail-content">
@@ -323,8 +358,10 @@
           <a class="camera-guide" href="https://support.dreametech.com/hc/en-us/articles/10385305465231-Unlock-Your-Home-s-Eyes-with-Dreamehome-App-A-Simple-Guide-to-Camera-Monitoring" target="_blank" rel="noopener noreferrer">Инструкция Dreame</a>
         </div>
       </details>
+      </div>
     </div>
-  </main>
+    </main>
+  </div>
 
   <dialog id="confirmation" aria-labelledby="confirmation-title">
     <form method="dialog">
@@ -380,6 +417,11 @@
           </div>
           <p id="history-replay-note" class="muted"></p>
         </div>
+      </div>
+      <div id="history-followup" class="journal-followup" hidden>
+        <div><h3>Доуборка</h3><p id="history-reclean-hint" class="muted"></p></div>
+        <button id="history-reclean" type="button" aria-describedby="history-reclean-hint" disabled>Доубрать</button>
+        <p id="history-reclean-result" class="job-result" role="status" hidden></p>
       </div>
       <section id="history-obstacles" class="history-obstacles" aria-labelledby="history-obstacles-title" hidden>
         <h3 id="history-obstacles-title">Препятствия</h3>

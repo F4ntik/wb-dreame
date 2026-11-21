@@ -249,6 +249,7 @@ export function historyView(coverageSwitches) {
     if (!dialog.open) return;
     const rows = navigationRows();
     const index = rows.findIndex(row => row.timestamp === active?.timestamp);
+    $('history-followup').hidden = !active?.mapAvailable || active.timestamp !== records[0]?.timestamp;
     previous.disabled = index < 0 || index === rows.length - 1;
     next.disabled = index <= 0;
     $('history-nav-count').textContent = index < 0 ? '' : `${index + 1} из ${rows.length}`;
@@ -648,7 +649,7 @@ export function historyView(coverageSwitches) {
     $(id).addEventListener('click', () => {
       page += step;
       renderList();
-      list.querySelector('.history-link')?.focus();
+      list.querySelector('.journal-row')?.focus();
     });
   }
   retry.addEventListener('click', () => { if (active) showRecord(active); });

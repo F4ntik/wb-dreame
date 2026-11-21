@@ -1,11 +1,22 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { adjustUnderlay, cleaningCoverage, dragZone, jobRequest, mapInfo, mapOverlays, mapView, maxZones, pendingRequest, pointOnMap, preferenceInfo,
+import { adjustUnderlay, cleaningCoverage, dragZone, jobRequest, mapInfo, mapOverlays, mapView, maxZones, motionActions, pendingRequest, pointOnMap, preferenceInfo,
   preferenceRequest, rectanglePaths, requestIdentity, underlayInfo, zoneHitsNoGo, zoneInBounds, zoneMeasures, zoneProblem } from '../web/controls.js';
 
 const map = mapInfo({ id: 7, revision: 'r2', bounds: [-300, -100, 500, 650],
   rooms: { 1: 'Кухня', 3: 'Холл', wrong: 'Не комната' }, svg: '<svg/>' });
 const automatic = { suction: '', water: '', repeats: '1' };
+
+test('motion controls match the current cleaning, pause, return and dock states', () => {
+  const actions = (state, cleaning, position) => Object.entries(motionActions(state, cleaning, position))
+    .filter(([, available]) => available).map(([action]) => action);
+  assert.deepEqual(actions('SWEEPING', true, 'away'), ['pause', 'stop', 'dock']);
+  assert.deepEqual(actions('PAUSED', false, 'away'), ['resume', 'stop', 'dock']);
+  assert.deepEqual(actions('RETURNING', false, 'returning'), ['stop']);
+  assert.deepEqual(actions('IDLE', false, 'away'), ['dock']);
+  assert.deepEqual(actions('CHARGING_COMPLETED', false, 'docked'), []);
+  assert.deepEqual(actions('IDLE', false, 'docked'), []);
+});
 
 test('room aliases supply labels without changing the ordered request or saved map', () => {
   const key = 'a'.repeat(64);

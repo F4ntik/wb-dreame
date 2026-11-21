@@ -4,6 +4,8 @@ import { copyConflicts, recurrence } from '../web/schedules-data.js';
 
 test('Russian recurrence follows calendar order and respects one-time jobs', () => {
   assert.equal(recurrence({ weekdays: '1100001' }), 'Пн, Сб, Вс');
+  assert.equal(recurrence({ weekdays: '0111110' }), 'Пн – Пт');
+  assert.equal(recurrence({ weekdays: '1000001' }), 'Сб и Вс');
   assert.equal(recurrence({ weekdays: '1111111' }), 'Каждый день');
   assert.equal(recurrence({ once: true, weekdays: '0000000' }), 'Один раз');
   assert.equal(recurrence({ weekdays: null }), 'Дни уточните в Dreamehome');

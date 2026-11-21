@@ -1,6 +1,8 @@
 import { copyConflicts, recurrence } from './schedules-data.js';
+import { confirmMessage } from './views.js';
 
 const panel = document.getElementById('schedules');
+const connection = document.getElementById('connection');
 const find = name => panel.querySelector(`#schedules-${name}`);
 const refresh = find('refresh');
 const chargingForm = find('charging-form');
@@ -65,10 +67,11 @@ function cleaningInput() {
 }
 
 function updateControls() {
-  const allow = ready && writable && !busy;
-  refresh.disabled = busy;
+  const online = connection.dataset.online === 'true';
+  const allow = online && connection.dataset.writable === 'true' && ready && writable && !busy;
+  refresh.disabled = busy || !online;
   chargingEdit.disabled = !allow || Boolean(chargingDraft);
-  chargingForm.querySelector('fieldset').disabled = busy || !writable;
+  chargingForm.querySelector('fieldset').disabled = !allow;
   find('charging-cancel').disabled = busy;
   const { enabled, start, end } = interval();
   find('charging-next-day').hidden = !overnight(start, end);
@@ -76,7 +79,7 @@ function updateControls() {
     || (chargingDraft.enabled === enabled && chargingDraft.start === start && chargingDraft.end === end);
 
   for (const button of cleaningList.querySelectorAll('button[data-task]')) button.disabled = !allow || Boolean(cleaningDraft);
-  cleaningFields.disabled = busy || !writable;
+  cleaningFields.disabled = !allow;
   find('cleaning-cancel').disabled = busy;
   const canSaveCleaning = allow && cleaningDraft && cleaningDraft.revision === cleaningData?.revision;
   cleaningCopy.disabled = cleaningDelete.disabled = !canSaveCleaning;
@@ -260,11 +263,20 @@ async function saveSchedule(kind, payload, pending, onSaved) {
 }
 
 function openTab() {
-  if (panel.parentElement.hidden || opened) return;
+  if (panel.parentElement.hidden || opened || connection.dataset.online !== 'true') return;
   opened = true;
   void load();
 }
 
+document.addEventListener('dreame:connection', () => {
+  opened = false;
+  ready = false;
+  if (connection.dataset.online !== 'true' && (chargingData || cleaningData)) {
+    message('Показано последнее прочитанное расписание. Изменения будут доступны после восстановления связи.');
+  }
+  updateControls();
+  openTab();
+});
 refresh.addEventListener('click', load);
 new MutationObserver(openTab).observe(panel.parentElement, { attributes: true, attributeFilter: ['hidden'] });
 openTab();
@@ -352,8 +364,11 @@ cleaningForm.addEventListener('submit', event => {
   saveCleaning(cleaningDraft.copy ? 'clone' : 'update', fields);
 });
 
-cleaningDelete.addEventListener('click', () => {
+cleaningDelete.addEventListener('click', async () => {
   if (cleaningDelete.disabled || cleaningDelete.hidden) return;
-  const { id, time } = cleaningDraft.task;
-  if (window.confirm(`Удалить задание № ${id} на ${time}?`)) saveCleaning('delete');
+  const current = cleaningDraft;
+  const { id, time } = current.task;
+  const confirmed = await confirmMessage('Удалить задание из расписания?',
+    `Задание № ${id} · ${time} · ${recurrence(current.task)}`, 'Удалить', true);
+  if (confirmed && current === cleaningDraft && !cleaningDelete.disabled) saveCleaning('delete');
 });

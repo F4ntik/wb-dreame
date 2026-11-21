@@ -307,6 +307,12 @@ export function rectanglePaths(rects) {
   return rects.map(([x, y, width, height]) => `M${x} ${y}h${width}v${height}h${-width}z`).join('');
 }
 
+export function motionActions(state, cleaning, dockStatus) {
+  const paused = state === 'PAUSED';
+  return { pause: cleaning, resume: paused, stop: cleaning || paused || state === 'RETURNING',
+    dock: cleaning || paused || (state === 'IDLE' && dockStatus !== 'docked') };
+}
+
 export function jobRequest(action, map, selection, settings, cleanGenius = null) {
   if (!actions.has(action)) return null;
   if (action !== 'start') return { action };

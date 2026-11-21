@@ -1,8 +1,8 @@
-import { adjustUnderlay, cleaningCoverage, dragZone, jobRequest, mapInfo, mapOverlays, mapView, maxZones, pendingRequest, pointOnMap, preferenceInfo,
+import { adjustUnderlay, cleaningCoverage, dragZone, jobRequest, mapInfo, mapOverlays, mapView, maxZones, motionActions, pendingRequest, pointOnMap, preferenceInfo,
   preferenceRequest, rectanglePaths, requestIdentity, roomStatusLabels, safeMapSvg, svgNS, underlayInfo, underlayUrl, zoneHitsNoGo, zoneInBounds,
   zoneListInBounds, zoneMeasures, zoneProblem } from './controls.js';
 import { scenarios } from './scenarios.js';
-import { initViews, resourceWidget } from './views.js';
+import { confirmMessage, initViews, resourceWidget } from './views.js';
 import { historyRows, historyView } from './history.js';
 
 const byId = id => document.getElementById(id);
@@ -11,6 +11,7 @@ const robotMarker = byId('robot-marker');
 const livePosition = byId('live-position');
 const liveFrameTime = byId('live-frame-time');
 const roomList = byId('room-list');
+const roomAnchors = new WeakMap();
 const roomPins = document.createElement('div');
 roomPins.className = 'room-order-map';
 roomPins.setAttribute('aria-hidden', 'true');
@@ -49,6 +50,11 @@ const recleanResult = byId('reclean-result');
 const notice = byId('job-result');
 const modal = byId('confirmation');
 const motion = byId('motion-controls');
+const layers = byId('map-layers'), layerPanel = byId('map-layers-panel');
+const coordinatesPanel = byId('zone-coordinates');
+const targetSelector = byId('target-selector');
+const jobMode = byId('job-mode');
+
 const underlayToggle = byId('underlay-toggle');
 const underlayOpacity = byId('underlay-opacity');
 const underlayStatus = byId('underlay-status');
@@ -194,12 +200,16 @@ function applyTuning(settings = {}) {
   for (const id of selects) byId(id).value = settings[id] ?? (id === 'repeats' ? 1 : '');
 }
 
-function tuningSummary(settings = {}) {
-  const description = (id, fallback) => {
-    const option = Array.from(byId(id).options).find(item => item.value === String(settings[id]));
-    return option ? option.textContent.replace(/^\d+ · /, '') : fallback;
-  };
-  return `Всасывание: ${description('suction', 'как у робота')} · Вода: ${description('water', 'как у робота')} · Проходы: ${settings.repeats ?? 1}`;
+function tuningValues(settings = {}) {
+  return selects.map(id => {
+    const value = settings[id] ?? (id === 'repeats' ? 1 : '');
+    return Array.from(byId(id).options).find(option => option.value === String(value))?.textContent || 'Как у робота';
+  });
+}
+
+function tuningSummary(settings) {
+  const [suction, water, repeats] = tuningValues(settings);
+  return `Всасывание — ${suction.toLocaleLowerCase('ru')}. Вода — ${water.toLocaleLowerCase('ru')}. Проходов — ${repeats}.`;
 }
 
 function prepared(action = 'start') {
@@ -341,21 +351,41 @@ function measureText(value) {
 }
 
 function updateRoomPins() {
-  if (!svg) return;
+  if (!svg || !mapHost.clientWidth) return;
   const bounds = mapHost.getBoundingClientRect();
   const pins = [];
-  for (const path of svg.querySelectorAll('path[role="button"][aria-pressed="true"]')) {
+  const occupied = [];
+  const paths = [...svg.querySelectorAll('path[role="button"]')].sort((a, b) =>
+    Number(Boolean(b.dataset.order)) - Number(Boolean(a.dataset.order)));
+  for (const path of paths) {
+    const order = path.dataset.order;
+    if (!order && target === 'zone') continue;
     const matrix = path.getScreenCTM();
     if (!matrix) continue;
-    const { x, y, width, height } = path.getBBox();
-    const samples = [.5, .25, .75];
-    const point = samples.flatMap(v => samples.map(u => new DOMPoint(x + u * width, y + v * height)))
-      .find(point => path.isPointInFill?.(point));
-    if (!point) continue;
-    const screen = point.matrixTransform(matrix);
-    const pin = make('span', path.dataset.order);
-    pin.style.left = `${screen.x - bounds.left - mapHost.clientLeft}px`;
-    pin.style.top = `${screen.y - bounds.top - mapHost.clientTop}px`;
+    if (!roomAnchors.has(path)) {
+      const { x, y, width, height } = path.getBBox();
+      if (!width || !height) continue;
+      const samples = [.5, .25, .75, .12, .88];
+      const anchor = samples.flatMap(v => samples.map(u => new DOMPoint(x + u * width, y + v * height)))
+        .find(point => path.isPointInFill(point));
+      roomAnchors.set(path, anchor);
+    }
+    const local = roomAnchors.get(path);
+    if (!local) continue;
+    const screen = local.matrixTransform(matrix);
+    const x = screen.x - bounds.left - mapHost.clientLeft, y = screen.y - bounds.top - mapHost.clientTop;
+    const roomName = map.rooms[path.dataset.room];
+    const width = Math.min(108, (order ? 35 : 14) + roomName.length * 7);
+    const box = [x - width / 2, y - 10, x + width / 2, y + 10];
+    const overlap = occupied.some(([a, b, c, d]) => box[0] < c && a < box[2] && box[1] < d && b < box[3]);
+    if (!order && (overlap || box[0] < 0 || box[1] < 0 || box[2] > mapHost.clientWidth || box[3] > mapHost.clientHeight)) continue;
+    const showName = !order || (!overlap && box[0] >= 0 && box[2] <= mapHost.clientWidth && path.getBoundingClientRect().width >= width);
+    const pin = make('span', showName ? roomName : '', order ? 'selected-room-pin' : 'room-name-pin');
+    if (order && !showName) pin.classList.add('number-only');
+    if (order) pin.prepend(make('b', order, 'order-pin'));
+    pin.style.left = `${x}px`;
+    pin.style.top = `${y}px`;
+    occupied.push(box);
     pins.push(pin);
   }
   roomPins.replaceChildren(...pins);
@@ -401,9 +431,18 @@ function renderJob() {
   scenarioPanel?.render();
   const editing = scenarioPanel?.editing() || false;
   byId('job-title').closest('.job-card').classList.toggle('editing-entrance', editing);
-  label(byId('job-title'), editing ? 'Песок у входа' : 'Задание уборки');
+  label(byId('map-title'), editing ? 'Песок у входа' : 'Карта уборки');
+  label(byId('job-title'), editing ? 'Настройки сценария' : 'Задание уборки');
+  targetSelector.hidden = editing;
+  targetSelector.disabled = !map;
+  byId('map-editor-mode').hidden = !editing;
+  byId('room-choices').hidden = target !== 'rooms' || !map || editing;
+  byId('to-job').hidden = !map;
+  label(byId('to-job'), editing ? 'К сохранению ↓' : 'К заданию ↓');
+  jobMode.hidden = editing || cleanGenius === null;
+  if (!jobMode.hidden) label(jobMode, `CleanGenius · ${cleanGeniusText()}`);
   label(byId('tuning-title'), editing ? 'Параметры сценария' : 'Параметры задания');
-  label(byId('tuning-hint'), editing ? 'Сохраняются на WB вместе с зонами. «Как у робота» берёт значение при запуске.' : 'Действуют для этого запуска.');
+  label(byId('tuning-hint'), editing ? 'Сохраняются на контроллере. «Как у робота» использует настройки на момент запуска.' : 'Действуют для этого запуска.');
   byId('entrance-editor-actions').hidden = !editing;
   const drawZone = target === 'zone';
   if (!drawZone) stopZoneDrag();
@@ -417,10 +456,12 @@ function renderJob() {
     field.dataset.custom = String(field.value !== (id === 'repeats' ? '1' : ''));
   }
   label(byId('target-summary'), targetText());
-  label(byId('map-hint'), !map ? 'Ожидаем актуальную сохранённую карту.' : drawZone
+  byId('map-hint').hidden = !map;
+  label(byId('map-hint'), !map ? '' : drawZone
     ? (zones.length >= maxZones ? `В задании может быть до ${maxZones} зон. Нажмите × рядом с выбранной зоной, чтобы удалить её.`
       : zones.length ? 'Потяните зону за середину, сторону или угол. Нажмите ×, чтобы удалить выбранную зону. Новую зону можно нарисовать на свободном месте.'
-        : 'Проведите от одного угла зоны до другого или укажите координаты.') : 'Выберите комнаты на карте или в списке.');
+        : 'Проведите от одного угла зоны до другого или укажите координаты.') : target === 'rooms' ? 'Нажимайте комнаты в порядке уборки. Повторное нажатие снимает выбор.'
+      : 'Нажмите комнату на карте, чтобы убрать её отдельно.');
   const order = new Map(target === 'rooms' ? [...rooms].map((id, index) => [id, index + 1]) : []);
   for (const element of [mapHost, roomList].flatMap(host => [...host.querySelectorAll('[data-room]')])) {
     const position = order.get(Number(element.dataset.room));
@@ -434,20 +475,30 @@ function renderJob() {
   }
   updateRoomPins();
   updateOverlay();
-  submit.disabled = busy || Boolean(drag) || preferenceBusy === 'cleangenius' || awaitingMode !== null || telemetry.online !== true || !prepared();
+  const actions = availableMotion();
+  const occupied = actions.stop;
+  submit.disabled = occupied || busy || Boolean(drag) || preferenceBusy === 'cleangenius' || awaitingMode !== null || telemetry.online !== true || !prepared();
   label(submit, telemetry.allow_commands === true ? 'Начать уборку' : 'Проверить задание');
   label(byId('submit-hint'), preferenceBusy === 'cleangenius' || awaitingMode !== null ? 'Ждём обновления режима CleanGenius.' :
     telemetry.online !== true ? 'Робот должен быть на связи.' : !map
-    ? 'Для задания нужна сохранённая карта.' : telemetry.allow_commands === true
+    ? 'Для задания нужна сохранённая карта.' : occupied ? 'Новое задание можно запустить после завершения текущего.' : telemetry.allow_commands === true
       ? 'Перед запуском появится подтверждение.' : 'Проверка не запускает пылесос.');
-  motion.hidden = telemetry.allow_commands !== true;
-  for (const button of motion.querySelectorAll('button')) button.disabled = busy || preferenceBusy === 'cleangenius' || telemetry.online !== true;
+  byId('motion-panel').hidden = editing || telemetry.online !== true || telemetry.allow_commands !== true || !Object.values(actions).some(Boolean);
+  label(byId('motion-title'), occupied ? 'Текущая уборка' : 'Управление роботом');
+  for (const button of motion.querySelectorAll('button')) {
+    button.hidden = !actions[button.dataset.action];
+    button.disabled = busy || preferenceBusy === 'cleangenius';
+  }
   forgetRequest.hidden = !retry;
   forgetRequest.disabled = busy || preferenceBusy === 'cleangenius';
+  const canChooseLayers = map && (!byId('underlay-controls').hidden || !byId('route-choice').hidden || !byId('live-coverage-control').hidden);
+  layers.hidden = !canChooseLayers;
+  layerPanel.hidden = !canChooseLayers || layers.getAttribute('aria-expanded') !== 'true';
   renderReclean();
 }
 
 function changeTarget(kind) {
+  if (notice.dataset.draft && target !== kind) notice.hidden = true;
   target = kind;
   form.elements.target.value = kind;
   renderJob();
@@ -459,6 +510,7 @@ function replaceMap(next) {
     return;
   }
   if (!next && !map) return;
+  if (notice.dataset.draft) notice.hidden = true;
   scenarioPanel?.mapChanged();
   svg = next && safeMapSvg(next, document);
   map = svg ? next : null;
@@ -476,7 +528,7 @@ function replaceMap(next) {
   underlayCalibration = null;
   resetAlignmentFields();
   byId('map-legend').replaceChildren();
-  label(byId('map-id'), map ? `Карта №${map.id}` : '');
+  label(byId('map-id'), map ? `Карта № ${map.id}` : '');
   if (!map) {
     mapHost.replaceChildren(make('p', 'Карта пока недоступна', 'muted'), zoneBadge);
     return;
@@ -565,6 +617,10 @@ function trackingActive() {
   return telemetry.online === true && (telemetry.tracking_active ?? cleaningStates.has(telemetry.state)) === true;
 }
 
+function availableMotion() {
+  return motionActions(telemetry.state, trackingActive(), telemetry.dock_status);
+}
+
 function roomAtPosition(point) {
   const matched = new Set();
   for (const path of svg.querySelectorAll('path[data-room]')) {
@@ -636,6 +692,7 @@ function renderOverlays(items, savedItems) {
   const control = byId('live-coverage-control');
   if (!overlaysGroup) {
     control.hidden = true;
+    byId('route-choice').hidden = true;
     return;
   }
   const [left, bottom, right, top] = map.bounds;
@@ -644,6 +701,7 @@ function renderOverlays(items, savedItems) {
     const [[x, y]] = points;
     return x >= left && x <= right && y >= -top && y <= -bottom;
   });
+  byId('route-choice').hidden = !features.some(item => item.kind === 'path');
   const coverage = cleaningCoverage(features, map);
   control.hidden = !trackingActive() && !coverage;
   liveCoverageSwitch.disabled = !coverage;
@@ -842,10 +900,20 @@ function toggleRoom(key) {
   changeTarget('rooms');
 }
 
-form.addEventListener('change', event => {
-  if (event.target.name === 'target') changeTarget(event.target.value);
-  else renderJob();
+targetSelector.addEventListener('change', event => changeTarget(event.target.value));
+form.addEventListener('change', renderJob);
+layers.addEventListener('click', () => {
+  layerPanel.hidden = !layerPanel.hidden;
+  layers.setAttribute('aria-expanded', String(!layerPanel.hidden));
 });
+byId('route-switch').addEventListener('change', event => { mapHost.dataset.route = String(event.target.checked); });
+byId('to-job').addEventListener('click', () => byId('job-title').focus());
+jobMode.addEventListener('click', () => {
+  byId('tab-settings').click();
+  const control = cleaningModeOptions.querySelector('input:checked:not(:disabled)');
+  (control || byId('tab-settings')).focus();
+});
+byId('retry-connection').addEventListener('click', poll);
 for (const input of zoneFields) input.addEventListener('input', () => {
   if (selectedZone < 0) selectedZone = 0;
   zones[selectedZone] = readZone();
@@ -857,6 +925,7 @@ addZone.addEventListener('click', () => {
   selectZone(zones.length - 1);
   zoneEpoch++;
   renderJob();
+  coordinatesPanel.open = true;
   zoneFields[0].focus();
 });
 function deleteSelectedZone(fromMap) {
@@ -1179,18 +1248,30 @@ function renderCamera(camera) {
   label(note, messages.join(' '));
 }
 
-function render(data, keepAlignment = false) {
+function render(data, keepAlignment = false, controllerReached = true) {
   telemetry = data;
   const online = data.online === true;
-  byId('connection').dataset.online = String(online);
+  const connection = byId('connection'), writable = data.allow_commands === true;
+  const changed = connection.dataset.online !== String(online) || connection.dataset.writable !== String(writable);
+  connection.dataset.online = String(online);
+  connection.dataset.writable = String(writable);
+  if (changed) document.dispatchEvent(new Event('dreame:connection'));
   label(byId('connection'), online ? 'На связи' : 'Нет связи');
-  label(byId('model'), typeof data.model === 'string' && data.model ? data.model : 'Dreame');
+  if (typeof data.model === 'string' && data.model) label(byId('model'), data.model);
+  byId('offline-notice').hidden = online;
+  if (!online) {
+    label(byId('offline-title'), controllerReached ? 'Нет связи с роботом' : 'Контроллер не отвечает');
+    label(byId('offline-message'), controllerReached ? 'Ждём ответа Dreamehome. Панель обновится автоматически.'
+      : 'Проверьте подключение к сети Wiren Board. Панель повторит запрос.');
+  }
   label(byId('robot-state'), online ? (data.state_title || data.state || '—') : '—');
   const battery = online && Number.isFinite(data.battery) && data.battery >= 0 && data.battery <= 100 ? data.battery : null;
   label(byId('battery'), battery === null ? '—' : `${numbers.format(battery)} %`);
+  byId('battery-fill').parentElement.hidden = battery === null;
   byId('battery-fill').style.width = `${battery ?? 0}%`;
   label(byId('dock-state'), dockStatus(data));
-  label(byId('command-state'), data.allow_commands === true ? 'Команды доступны' : 'Просмотр и проверка');
+  byId('command-state').hidden = !online || data.allow_commands === true;
+  label(byId('command-state'), 'Доступна только проверка');
   replaceMap(online ? mapInfo(data.map, data.room_names) : null);
   renderLiveRoomStatuses(data.live_room_status);
   if (!keepAlignment || !underlayCalibration) renderUnderlay(data.underlay);
@@ -1226,15 +1307,17 @@ async function poll() {
   clearTimeout(pollTimer);
   if (document.hidden || polling) return;
   polling = true;
+  byId('retry-connection').disabled = true;
   const currentAlignment = alignmentVersion;
   try {
     const result = await fetch('./api/state', { cache: 'no-store', signal: AbortSignal.timeout(8000) });
     if (!result.ok) throw new Error('state');
     render(await result.json(), alignmentVersion !== currentAlignment);
   } catch {
-    render({});
+    render({}, false, false);
   } finally {
     polling = false;
+    byId('retry-connection').disabled = false;
     if (!document.hidden) pollTimer = setTimeout(poll, trackingActive() ? 2000 : 3500);
   }
 }
@@ -1242,20 +1325,10 @@ async function poll() {
 document.addEventListener('visibilitychange', poll);
 
 function notify(message, error) {
+  delete notice.dataset.draft;
   notice.hidden = false;
   notice.dataset.error = String(error);
   label(notice, message);
-}
-
-function confirmMessage(title, message, accept = 'Подтвердить') {
-  label(byId('confirmation-title'), title);
-  label(byId('confirmation-message'), message);
-  label(byId('confirmation-accept'), accept);
-  modal.returnValue = 'cancel';
-  return new Promise(resolve => {
-    modal.addEventListener('close', () => resolve(modal.returnValue === 'send'), { once: true });
-    modal.showModal();
-  });
 }
 
 function newRequestId() {
@@ -1279,13 +1352,23 @@ function renderReclean() {
   else if (!report) reason = 'Ждём последнего отчёта Dreamehome.';
   else if (!report.mapAvailable) reason = 'У последнего отчёта нет архивной карты.';
   reclean.disabled = Boolean(reason) || busy || preferenceBusy === 'cleangenius';
-  label(byId('reclean-hint'), reason || `Проверить пропуски по отчёту от ${reportTime.format(report.timestamp * 1000)}.`);
+  const hint = reason || `Проверить пропуски по отчёту от ${reportTime.format(report.timestamp * 1000)}.`;
+  if (recleanResult.dataset.report !== String(report?.timestamp)) {
+    recleanResult.hidden = true;
+    byId('history-reclean-result').hidden = true;
+  }
+  label(byId('reclean-hint'), hint);
+  label(byId('history-reclean-hint'), hint);
+  byId('history-reclean').disabled = reclean.disabled;
 }
 
 function showRecleanResult(message, error = false) {
-  recleanResult.hidden = false;
-  recleanResult.dataset.error = String(error);
-  label(recleanResult, message);
+  recleanResult.dataset.report = String(latestReport()?.timestamp);
+  for (const result of [recleanResult, byId('history-reclean-result')]) {
+    result.hidden = false;
+    result.dataset.error = String(error);
+    label(result, message);
+  }
 }
 
 async function postReclean(endpoint, request) {
@@ -1295,6 +1378,7 @@ async function postReclean(endpoint, request) {
   return { ...result, ok: response.ok };
 }
 
+byId('history-reclean').addEventListener('click', () => reclean.click());
 reclean.addEventListener('click', async () => {
   if (reclean.disabled) return;
   const report = latestReport();
@@ -1350,6 +1434,10 @@ async function send(action, scenario = null) {
   const preview = action === 'start' && telemetry.allow_commands !== true;
   if (busy || preferenceBusy === 'cleangenius' || (action === 'start' && awaitingMode !== null) ||
       telemetry.online !== true || !job || (job.kind === 'zone' && drag) || (!preview && telemetry.allow_commands !== true)) return;
+  if (action === 'start' && availableMotion().stop) {
+    feedback('Новую уборку можно запустить после завершения текущей.', true);
+    return;
+  }
   const endpoint = preview ? './api/preview' : './api/job';
   const key = JSON.stringify([endpoint, job]);
   const preparedMode = cleanGenius;
@@ -1362,12 +1450,17 @@ async function send(action, scenario = null) {
       const modeText = cleanGenius === null ? '' : ` CleanGenius — ${cleanGeniusText()}.`;
       const areas = job.zones || (job.zone ? [job.zone] : []);
       const areaText = areas.map(([x1, y1, x2, y2], index) => `Зона ${index + 1} · (${x1}, ${y1}) → (${x2}, ${y2})`);
-      const confirmed = await confirmMessage('Подтвердите команду',
-        scenario?.confirmation ?? (action === 'start' ? [`Начать уборку? ${targetText()}.${modeText}`, ...areaText, ...(job.kind === 'zone' ? [tuningSummary(job)] : [])].join('\n') : motionLabels[action]));
+      const verb = { start: 'Начать уборку', pause: 'Приостановить', resume: 'Продолжить', stop: 'Остановить', dock: 'На базу' }[action];
+      const message = scenario?.confirmation ?? (action === 'start' ? [targetText() + '.' + modeText, ...areaText,
+        ...(['zone', 'rooms'].includes(job.kind) && cleanGenius === 0 ? [tuningSummary(job)] : [])].join('\n')
+        : 'Команда будет отправлена пылесосу.');
+      const confirmed = await confirmMessage(action === 'start' ? 'Начать уборку?' : motionLabels[action], message, verb, action === 'stop');
       confirmingZone = false;
       if (!confirmed) return;
     }
+    const motionNow = availableMotion();
     if (telemetry.online !== true || (!preview && telemetry.allow_commands !== true) ||
+        (action === 'start' ? motionNow.stop : !motionNow[action]) ||
         (action === 'start' && (map?.id !== job.map_id || map?.revision !== job.revision || cleanGenius !== preparedMode)) ||
         (job.kind === 'zone' && preparedZoneEpoch !== zoneEpoch)) {
       feedback('Состояние робота, режим или карта изменились. Проверьте задание ещё раз.', true);
@@ -1399,7 +1492,7 @@ forgetRequest.addEventListener('click', async () => {
   renderJob();
   try {
     if (await confirmMessage('Сбросить ожидающий запрос?',
-      'Ответ неизвестен. Проверьте состояние пылесоса: повтор после сброса будет новой командой.', 'Сбросить запрос')) {
+      'Ответ неизвестен. Проверьте состояние пылесоса: повтор после сброса будет новой командой.', 'Сбросить запрос', true)) {
       rememberRetry(null);
       notify('Ожидающий запрос сброшен.', false);
     }
@@ -1423,22 +1516,32 @@ if (retry) notify('Исход предыдущей команды неизвес
 scenarioPanel = scenarios({
   map: () => map, online: () => telemetry.online === true, busy: () => busy || Boolean(drag) || Boolean(preferenceBusy) || modal.open,
   zones: () => target === 'zone' ? jobZones() : null,
-  tuning, summary: tuningSummary, zoneCount: () => zones.length,
-  draft: () => ({target, zones:zones.map(z => [...z]), selected:selectedZone, tuning:tuning()}),
-  restore: draft => {
+  tuning, tuningValues, zoneCount: () => zones.length,
+  draft: () => ({target, zones:zones.map(z => [...z]), selected:selectedZone, removedZone, tuning:tuning(), coordinatesOpen:coordinatesPanel.open}),
+  restore: (draft, sameMap) => {
     stopZoneDrag();
-    zones = draft.zones;
-    selectZone(draft.selected);
+    zones = sameMap ? draft.zones : [];
+    removedZone = sameMap ? draft.removedZone : null;
+    selectZone(sameMap ? draft.selected : -1);
     zoneEpoch++;
     applyTuning(draft.tuning);
-    changeTarget(draft.target);
+    coordinatesPanel.open = sameMap && draft.coordinatesOpen;
+    changeTarget(sameMap ? draft.target : 'all');
+  },
+  openMap: () => {
+    byId('tab-map').click();
+    byId('map').focus({preventScroll:true});
+    byId('map').scrollIntoView({block:'nearest'});
   },
   pick: (saved, settings, editing) => {
     applyTuning(settings);
     changeTarget('zone');
     if (!replaceZoneDraft(saved)) return false;
-    byId('map').scrollIntoView({block:'center'});
-    if (!editing) notify('Сценарий «Песок у входа» загружен. Проверьте параметры и нажмите «Начать уборку».', false);
+    coordinatesPanel.open = false;
+    if (!editing) {
+      notify('На карту перенесены зоны сценария «Песок у входа».', false);
+      notice.dataset.draft = 'true';
+    }
     return true;
   },
   writable: () => telemetry.allow_commands === true, confirm: confirmMessage, send: scene => send('start', scene),

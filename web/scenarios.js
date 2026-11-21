@@ -1,3 +1,5 @@
+import { glyph } from './views.js';
+
 const byId = id => document.getElementById(id);
 
 async function fetchScenario(path, body) {
@@ -11,73 +13,100 @@ async function fetchScenario(path, body) {
 }
 
 export function scenarios(ui) {
-  const host = byId('scenario-panel'), list = byId('scene-items'), feedback = byId('scene-message');
+  const host = byId('view-scenarios'), list = byId('scene-items'), feedback = byId('scene-message');
   const apply = byId('entrance-apply'), edit = byId('entrance-edit'), save = byId('entrance-save'), note = byId('entrance-note');
   const refresh = byId('scene-refresh');
-  let entrance, editor, pending = false;
+  let entrance, editor, loadedFor, pending = false;
   const status = byId('entrance-editor-status');
+  const values = byId('entrance-values');
 
-  function report(text) {
+  function report(text, error = false) {
     if (editor) status.textContent = text;
     feedback.textContent = text;
+    feedback.dataset.error = String(error);
     feedback.hidden = !text;
   }
   function render() {
-    const disabled = !ui.online() || !ui.map() || ui.busy() || pending;
+    const online = ui.online(), map = ui.map();
+    if (!online) loadedFor = null;
+    const disabled = !online || !map || ui.busy() || pending;
     apply.hidden = entrance?.status !== 'ready';
-    apply.disabled = edit.disabled = disabled || !entrance;
+    apply.disabled = disabled || !entrance || Boolean(editor);
+    edit.disabled = disabled || !entrance;
     const clear = Boolean(editor?.version) && ui.zoneCount() === 0;
     save.textContent = clear ? 'Сбросить сценарий' : 'Сохранить сценарий';
     save.disabled = disabled || !editor || (!clear && !ui.zones()?.length);
     byId('entrance-cancel').disabled = pending;
-    if (!host.open) return;
-    refresh.disabled = disabled;
+    if (host.hidden) return;
+    refresh.disabled = !online || ui.busy() || pending;
     for (const button of list.querySelectorAll('button')) {
-      button.disabled = disabled || button.dataset.map !== String(ui.map()?.id);
+      button.disabled = disabled || button.dataset.map !== String(map?.id);
     }
-    edit.textContent = entrance?.status === 'ready' ? 'Изменить сценарий' : 'Настроить сценарий';
-    note.textContent = entrance?.status === 'stale' ? 'Карта изменилась. Выберите участок заново.'
-      : entrance?.status === 'ready' ? `Зон: ${entrance.zones.length} · ${ui.summary(entrance.settings)}`
-      : 'Сохраните на WB зоны у входа, мощность, воду и число проходов.';
-
+    edit.textContent = editor ? 'Вернуться к настройке' : entrance?.status === 'ready' ? 'Изменить' : 'Настроить';
+    edit.classList.toggle('primary', !entrance || entrance.status !== 'ready');
+    note.textContent = !online ? 'Для настройки и запуска нужна связь с роботом.'
+      : !map ? 'Робот ещё не передал карту помещений.'
+      : entrance?.status === 'stale' ? 'Карта изменилась. Выберите участок заново.'
+      : entrance?.status === 'ready' ? `Зоны на карте — ${entrance.zones.length}`
+      : !entrance ? (pending ? 'Загружаем настройки…' : 'Обновите сценарии, чтобы прочитать настройки.')
+      : 'Выберите на карте участок у двери и сохраните параметры уборки.';
+    values.hidden = !online || !map || entrance?.status !== 'ready';
+    if (!values.hidden) {
+      const readings = ui.tuningValues(entrance.settings);
+      values.querySelectorAll('dd').forEach((field, index) => { field.textContent = readings[index]; });
+    }
+    if (!disabled && loadedFor !== map.revision) void load(false);
   }
-  async function run(work) {
+  async function run(work, clearMessage = true) {
     if (pending || ui.busy() || !ui.online()) return;
-    pending = true; report(''); render();
+    pending = true;
+    if (clearMessage) report('');
+    render();
     try { await work(); }
     catch (error) { report(error instanceof TypeError || error.name === 'TimeoutError'
-      ? 'Нет ответа. Обновите сценарии.' : error.message); }
+      ? 'Нет ответа. Обновите сценарии.' : error.message, true); }
     finally { pending = false; render(); }
   }
-  async function load() {
+  async function load(clearMessage = true) {
+    if (pending || ui.busy() || !ui.online()) return;
+    loadedFor = ui.map()?.revision;
     await run(async () => {
-      entrance = await fetchScenario('entrance');
+      list.textContent = 'Загружаем сценарии…';
+      try { entrance = await fetchScenario('entrance'); }
+      catch { entrance = null; report('Не удалось прочитать сценарий контроллера. Нажмите «Обновить».', true); }
+      let items;
+      try { ({items} = await fetchScenario('shortcuts')); }
+      catch { list.textContent = 'Не удалось прочитать список. Нажмите «Обновить».'; return; }
       list.replaceChildren();
-      const {items} = await fetchScenario('shortcuts');
       for (const scene of items) {
         const button = document.createElement('button');
         button.type = 'button'; button.dataset.map = String(scene.map_id);
-        button.textContent = scene.name;
-        if (!ui.writable()) button.textContent += ' · проверить';
-        if (scene.map_id !== ui.map()?.id) button.textContent += scene.map_id ? ' · карта №' + scene.map_id : ' · карта неизвестна';
+        const title = document.createElement('span');
+        title.textContent = scene.name;
+        const hint = document.createElement('small');
+        hint.textContent = scene.map_id !== ui.map()?.id ? (scene.map_id ? 'Карта № ' + scene.map_id : 'Карта неизвестна')
+          : ui.writable() ? '' : 'Доступна проверка';
+        if (hint.textContent) title.append(hint);
+        button.append(glyph('scenarios'), title, glyph('forward'));
         button.addEventListener('click', () => run(async () => {
           const detail = await fetchScenario('shortcuts/' + scene.id);
           const map = ui.map();
           if (!map || detail.map_id !== map.id || detail.name !== scene.name) throw new Error('Карта или сценарий изменились. Обновите список.');
-          const targets = [...(detail.whole ? ['Вся квартира'] : []), ...detail.rooms.map(id => map.rooms[id] || 'Комната №' + id)];
-          if (detail.zones.length) targets.push('Зон: ' + detail.zones.length);
+          const targets = [...(detail.whole ? ['Вся квартира'] : []), ...detail.rooms.map(id => map.rooms[id] || 'Комната № ' + id)];
+          if (detail.zones.length) targets.push('Зон — ' + detail.zones.length);
           await ui.send({report, job:{action:'start', kind:'shortcut', map_id:map.id, revision:map.revision,
-            shortcut_id:scene.id, shortcut_revision:detail.revision}, confirmation:'Запустить «' + detail.name
-              + '» по настройкам Dreamehome? ' + targets.join(' · ') + '. Этапов: ' + detail.steps + '.'});
+            shortcut_id:scene.id, shortcut_revision:detail.revision}, confirmation:'«' + detail.name + '» · Dreamehome\n' +
+              [...targets, 'Этапов — ' + detail.steps].join(' · ')});
         }));
         list.append(button);
       }
       if (!items.length) list.textContent = 'В Dreamehome пока нет сценариев.';
-    });
+    }, clearMessage);
   }
-  host.addEventListener('toggle', () => { if (host.open) void load(); });
-  refresh.addEventListener('click', load);
+  document.addEventListener('dreame:view', render);
+  refresh.addEventListener('click', () => load());
   async function openEntrance(editing) {
+    if (editor) { ui.openMap(); return; }
     await run(async () => {
       entrance = await fetchScenario('entrance');
       const map = ui.map(), ready = entrance.status === 'ready';
@@ -86,19 +115,23 @@ export function scenarios(ui) {
       if (!editing && !ready) throw new Error('Сначала настройте сценарий.');
       if (editing) {
         editor = {version: entrance.version, id: map.id, revision: map.revision, previous: ui.draft()};
-        status.textContent = 'Изменения сохраняются кнопкой «Сохранить сценарий».';
+        status.textContent = 'Сохранение обновит сценарий на контроллере. Уборку можно запустить отдельно.';
       }
       if (!ui.pick(ready ? entrance.zones : [], ready ? entrance.settings : {}, editing)) {
-        if (editing) endEditor('');
+        if (editing) endEditor('', true);
         throw new Error('Зоны не совпадают с картой. Обновите панель.');
       }
+      ui.openMap();
     });
   }
-  function endEditor(message, restore = true) {
+  function endEditor(message, sameMap = true) {
     const previous = editor?.previous;
     editor = null;
-    if (previous && restore) ui.restore(previous);
-    report(message);
+    if (previous) ui.restore(previous, sameMap);
+    const returnHere = !byId('view-map').hidden || !host.hidden;
+    if (returnHere) byId('tab-scenarios').click();
+    report(message, !sameMap);
+    if (returnHere) requestAnimationFrame(() => (edit.disabled ? byId('tab-scenarios') : edit).focus({preventScroll:true}));
   }
   async function saveEditor() {
     if (!editor) return;
@@ -107,7 +140,7 @@ export function scenarios(ui) {
       const clear = Boolean(current?.version) && ui.zoneCount() === 0;
       if (!map || (!clear && !zones?.length) || !current || current.id !== map.id || current.revision !== map.revision)
         throw new Error('Карта изменилась. Откройте сценарий заново.');
-      if (clear && !await ui.confirm('Сбросить «Песок у входа»?', 'С контроллера будут удалены сохранённые зоны и параметры этого сценария.', 'Сбросить')) return;
+      if (clear && !await ui.confirm('Сбросить «Песок у входа»?', 'С контроллера будут удалены сохранённые зоны и параметры этого сценария.', 'Сбросить', true)) return;
       if (current !== editor || map.revision !== ui.map()?.revision) throw new Error('Карта изменилась. Обновите сценарий.');
       const controls = [byId('map'), byId('job-form')];
       controls.forEach(el => { el.inert = true; });
@@ -117,13 +150,12 @@ export function scenarios(ui) {
       } finally { controls.forEach(el => { el.inert = false; }); }
       if (current !== editor) return;
       endEditor(clear ? 'Настройки сценария сброшены.' : '«Песок у входа» сохранён на контроллере.');
-      edit.focus();
     });
   }
   edit.addEventListener('click', () => openEntrance(true));
   apply.addEventListener('click', () => openEntrance(false));
   save.addEventListener('click', saveEditor);
-  byId('entrance-cancel').addEventListener('click', () => { endEditor('Изменения отменены.'); edit.focus(); });
+  byId('entrance-cancel').addEventListener('click', () => endEditor('Изменения отменены.'));
   return {render, editing: () => Boolean(editor), saveEditor,
     mapChanged() { if (editor) endEditor('Карта изменилась. Откройте сценарий заново.', false); }};
 }
