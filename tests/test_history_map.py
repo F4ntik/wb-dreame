@@ -10,7 +10,7 @@ from xml.etree import ElementTree
 import numpy as np
 
 from history_map import history_position, iter_route_sections, render_history
-from vendor.types import MapData, MapFrameType, MapImageDimensions, MapPixelType, Path, PathType, Point
+from vendor.types import MapData, MapFrameType, MapImageDimensions, MapPixelType, ObstacleReason, Path, PathType, Point, Segment
 
 
 def frame(pixels, *, left=-30, top=-20, step=10, rotation=0):
@@ -39,6 +39,35 @@ def encoded_frame(map_id, pixels, metadata):
 
 
 class HistoryMapTest(unittest.TestCase):
+    def test_archive_uses_its_own_room_cells_and_only_explicit_non_conflicting_outcomes(self):
+        archive = frame([[1, 102], [2, 3], [4, 5], [6, 7]], rotation=90)
+        archive.completed_segments = [1, 4, 6, 9, False]
+        archive.skipped_segments = [2, 4]
+        archive.pending_segments = [6]
+        archive.cleaned_segments = [5]
+        archive.blocked_segments = {3: [ObstacleReason.BLOCKED_BY_DOOR]}
+        archive.segments = {1: Segment(1, 0, 0, 0, 0, custom_name="Кухня & <холл>")}
+        archive.path = [Path(-25, -15, "S"), Path(-15, -15, "L")]
+        result = render_history(archive)
+        self.assertEqual(result["room_statuses"], [
+            {"id": 1, "name": "Кухня & <холл>", "status": "completed"},
+            {"id": 2, "name": "Комната 2", "status": "skipped"},
+            {"id": 3, "name": "Комната 3", "status": "blocked"},
+            *[{"id": room, "name": f"Комната {room}", "status": "unknown"} for room in (4, 5, 6, 7)],
+        ])
+        svg = ElementTree.fromstring(result["svg"])
+        self.assertNotIn("Кухня", result["svg"])
+        layer = svg.find("{*}g[@id='room-statuses']")
+        self.assertEqual({p.get("fill"): p.get("d") for p in layer}, {
+            "#1E9A78": "M1 3h1v1h-1z", "#DEA044": "M1 2h1v1h-1zM0 3h1v1h-1z",
+            "#DE8079": "M0 2h1v1h-1z",
+        })
+        self.assertTrue(result["has_path"])
+        archive.completed_segments = archive.skipped_segments = archive.blocked_segments = None
+        unavailable = render_history(archive)
+        self.assertEqual(unavailable["room_statuses"], [])
+        self.assertNotIn('id="room-statuses"', unavailable["svg"])
+
     def test_archive_grid_rotation_charger_and_image_percent_share_projection(self):
         archive = frame([[1, 0], [1, 255], [0, 2]], rotation=90)
         archive.charger_position = Point(-25.0, -15.0)
@@ -171,6 +200,7 @@ class HistoryMapTest(unittest.TestCase):
         packed = encoded_frame(7, pixels, {
             "iscleanlog": True, "mra": 180, "timestamp_ms": 1_800_000_000_000,
             "tr": "W105,105L10,0S125,115L0,10", "decmap": encoded_frame(8, cleaned, {}),
+            "combinecleanedarea": [[1], [True], [1.5]],
         })
         archive, _ = DreameVacuumMapDecoder.decode_map(packed, 3)
         self.assertIsNotNone(archive)
@@ -178,6 +208,7 @@ class HistoryMapTest(unittest.TestCase):
         result = render_history(archive)
         self.assertTrue(result["has_path"])
         self.assertTrue(result["has_coverage"])
+        self.assertEqual(archive.completed_segments, [1])
         self.assertEqual([p.path_type for p in archive.path], [
             PathType.SWEEP_AND_MOP, PathType.LINE, PathType.SWEEP, PathType.LINE,
         ])

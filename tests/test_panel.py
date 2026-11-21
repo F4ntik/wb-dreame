@@ -24,6 +24,50 @@ def sample_map(map_id=42):
 
 
 class PanelTest(unittest.TestCase):
+    @patch("bridge.time", return_value=1_800_000_000)
+    @patch("overlays.time", return_value=1_800_000_000)
+    def test_live_room_outcomes_require_fresh_matching_frame_during_one_task(self, now, _):
+        bridge = Bridge()
+        saved = sample_map()
+        saved.saved_map = True
+        saved.segments[1].unique_id = "kitchen"
+        frame = MapData()
+        frame.saved_map_id, frame.version, frame.dimensions = saved.map_id, saved.version, saved.dimensions
+        frame.saved_map_status, frame.frame_type, frame.frame_id = 2, MapFrameType.I.value, 113
+        frame.timestamp_ms = int(now.return_value * 1000) - 1
+        frame.completed_segments = [1, 30, True]
+        bridge.cloud = Mock(device=SimpleNamespace(status=SimpleNamespace(current_map=frame)))
+        sample = {"state": "SWEEPING", "task": "SEGMENT_CLEANING", "fw": "test",
+                  "battery": 85, "map_id": saved.map_id, "saved_map": saved, "rooms": {"1": "Кухня"}}
+        with patch.object(bridge, "pub"):
+            bridge.snapshot(sample)
+            self.assertEqual(bridge.web_state()["live_room_status"], {})
+            frame.timestamp_ms += 1
+            live = bridge.web_state()
+            self.assertEqual(live["live_room_status"], {"1": "completed"})
+            self.assertEqual(live["live_frame_at_ms"], frame.timestamp_ms)
+            self.assertEqual(live["overlays"], [])
+            frame.pending_segments = [1]
+            self.assertEqual(bridge.web_state()["live_room_status"], {})
+            frame.pending_segments = []
+            frame.skipped_segments = [1]
+            self.assertEqual(bridge.web_state()["live_room_status"], {})
+            frame.completed_segments = []
+            bridge.snapshot({**sample, "task": "SEGMENT_CLEANING_PAUSED", "state": "PAUSED"})
+            self.assertEqual(bridge.web_state()["live_room_status"], {"1": "skipped"})
+            frame.segments = {1: Segment(1, 0, 0, 4, 4)}
+            frame.segments[1].unique_id = "another-room"
+            self.assertEqual(bridge.web_state()["live_room_status"], {})
+            frame.segments = saved.segments
+            self.assertEqual(bridge.web_state()["live_room_status"], {"1": "skipped"})
+            frame.saved_map_id += 1
+            self.assertEqual(bridge.web_state()["live_room_status"], {})
+            frame.saved_map_id -= 1
+            now.return_value += 121
+            self.assertEqual(bridge.web_state()["live_room_status"], {})
+            bridge.snapshot({**sample, "task": "COMPLETED", "state": "IDLE"})
+            self.assertIsNone(bridge.web_state()["live_room_status"])
+
     @patch("overlays.time", return_value=1_800_000_000)
     def test_view_requests_live_data_and_drops_stale_room_with_position(self, now):
         bridge = Bridge()

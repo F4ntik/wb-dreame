@@ -5,6 +5,7 @@ from time import time
 import numpy as np
 
 from history_map import MAX_COVERAGE_SPANS, coverage_pixels, floor_mask, iter_route_sections
+from room_status import room_outcomes
 from vendor.types import Area, Line, MapFrameType, Point
 
 MAX_PER_KIND = 64
@@ -116,6 +117,35 @@ def _live_grid(saved, current, saved_grid):
     return None
 
 
+def _saved_grid(saved):
+    if (saved is not None and saved.saved_map is True and type(saved.map_id) is int
+            and not saved.restored_map and not saved.clean_log
+            and not any(getattr(saved, flag) for flag in NON_LIVE_FLAGS)):
+        return _grid(saved)
+    return None
+
+
+def live_room_outcomes(saved, current, room_keys, since_ms):
+    grid = _saved_grid(saved)
+    if grid is None or _live_grid(saved, current, grid) is None or current.timestamp_ms < since_ms:
+        return {}
+    result = {}
+    current_segments = current.segments or {}
+    saved_segments = saved.segments or {}
+    for room, status in room_outcomes(current).items():
+        if str(room) not in room_keys:
+            continue
+        live_segment = current_segments.get(room)
+        saved_uid = getattr(saved_segments.get(room), "unique_id", None)
+        live_uid = getattr(live_segment, "unique_id", None)
+        if current_segments and (live_segment is None or live_segment.unmapped or live_segment.visibility is False):
+            continue
+        if saved_uid is not None and live_uid is not None and saved_uid != live_uid:
+            continue
+        result[str(room)] = status
+    return result
+
+
 def _frame_coverage(saved, current, grid, live_grid):
     current_dim = current.dimensions
     marked = coverage_pixels(current, current_dim)
@@ -153,10 +183,7 @@ def _frame_coverage(saved, current, grid, live_grid):
 
 def read_overlays(saved, current, *, cleaning=False, station_pause=False):
     """Return bounded, JSON-ready geometry from one saved plan and a compatible live frame."""
-    if (saved is None or saved.saved_map is not True or type(saved.map_id) is not int
-            or saved.restored_map or saved.clean_log or any(getattr(saved, flag) for flag in NON_LIVE_FLAGS)):
-        return []
-    grid = _grid(saved)
+    grid = _saved_grid(saved)
     if grid is None:
         return []
 

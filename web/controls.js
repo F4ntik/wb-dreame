@@ -1,6 +1,9 @@
 export const svgNS = 'http://www.w3.org/2000/svg';
 export const underlayUrl = '/dreame/api/underlay';
 export const maxZones = 10;
+export const roomStatusLabels = {
+  completed: 'Убрана', skipped: 'Пропущена', blocked: 'Не удалось попасть', unknown: 'Статус неизвестен',
+};
 const actions = new Set(['start', 'pause', 'resume', 'stop', 'dock']);
 const roomId = /^\d{1,3}$/;
 

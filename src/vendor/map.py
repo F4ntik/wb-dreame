@@ -4246,7 +4246,11 @@ class DreameVacuumMapDecoder:
                 if not isinstance(item, list):
                     continue
                 if len(item) == 1:
-                    segments.append(int(item[0]))
+                    room = item[0]
+                    if type(room) is str and len(room) <= 2 and room.isascii() and room.isdecimal():
+                        room = int(room)
+                    if type(room) is int and 1 <= room <= 63:
+                        segments.append(room)
                 elif len(item) >= 4:
                     x_coords = sorted([item[0], item[2]])
                     y_coords = sorted([item[1], item[3]])

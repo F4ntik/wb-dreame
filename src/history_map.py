@@ -4,6 +4,7 @@ from itertools import groupby
 
 import numpy as np
 
+from room_status import room_outcomes
 from vendor.types import MapPixelType, PathType
 
 MAX_AXIS = 1_024
@@ -212,6 +213,33 @@ def _mop_trace(route, floor, dim, turns):
             f'stroke-linecap="round" stroke-linejoin="round" shape-rendering="auto">{route}</g>')
 
 
+def _archive_room_status(frame, pixels, turns):
+    outcomes = room_outcomes(frame, archived=True)
+    if not outcomes or frame.cleaning_map:
+        return "", []
+    max_room = 31 if frame.version == 3 else 63
+    segment_values = np.unique(pixels).tolist()
+    room_ids = {value if value <= max_room else value - 100 for value in segment_values
+                if 1 <= value <= max_room or 101 <= value <= 100 + max_room}
+    statuses = ["unknown", "completed", "skipped", "blocked"]
+    palette = ("", "#1E9A78", "#DEA044", "#DE8079")
+    lookup = np.zeros(256, dtype=np.uint8)
+    rooms = []
+    for room in sorted(room_ids):
+        segment = (frame.segments or {}).get(room)
+        if segment is not None and (segment.visibility is False or segment.unmapped):
+            continue
+        status = outcomes.get(room, "unknown")
+        lookup[room] = lookup[100 + room] = statuses.index(status)
+        name = getattr(segment, "name", None)
+        name = "".join(ch for ch in name if ch.isprintable()).strip()[:100] if isinstance(name, str) else ""
+        rooms.append({"id": room, "name": name or f"Комната {room}", "status": status})
+    if not lookup.any():
+        return "", []
+    layer = _rect_paths(lookup[pixels], turns, palette, MAX_COVERAGE_SPANS)
+    return f'<g id="room-statuses" opacity=".78" shape-rendering="crispEdges">{layer}</g>' if layer else "", rooms
+
+
 def render_history(map_data):
     """Return a standalone SVG and evidence flags for a decoded original archive frame."""
     layout = _layout(map_data)
@@ -226,6 +254,7 @@ def render_history(map_data):
     if not floor_svg:
         return None
 
+    room_layer, room_statuses = _archive_room_status(map_data, pixels, turns)
     coverage = _coverage(map_data, dim, floor, turns)
     route, route_sections, mop_route = _route(map_data.path, dim, turns)
     has_coverage = bool(coverage)
@@ -250,14 +279,17 @@ def render_history(map_data):
         '<title>Карта исторической уборки Dreame</title>'
         f'<rect x="{-PADDING}" y="{-PADDING}" width="{svg_width}" height="{svg_height}" fill="#F6F9F9"/>'
         f'<g shape-rendering="crispEdges">{floor_svg}</g>'
-        '<g id="cleaning-coverage" opacity=".55" shape-rendering="crispEdges">'
     )
+    coverage_start = '<g id="cleaning-coverage" opacity=".55" shape-rendering="crispEdges">'
     suffix = (f'</g><g fill="none" stroke-width=".7" stroke-linecap="round" stroke-linejoin="round">{route}</g>'
               f'{station}</svg>')
-    base_size = len(prefix.encode("utf-8")) + len(suffix)
+    base_size = len(prefix.encode("utf-8")) + len(coverage_start) + len(suffix)
     if coverage_source == "route" and base_size + len(coverage) > MAX_SVG_BYTES:
         coverage, coverage_source = "", None
     if base_size + len(coverage) > MAX_SVG_BYTES:
         return None
-    return {"svg": prefix + coverage + suffix, "has_path": bool(route), "has_coverage": has_coverage,
-            "coverage_source": coverage_source, "route_sections": route_sections}
+    if base_size + len(coverage) + len(room_layer) > MAX_SVG_BYTES:
+        room_layer = ""
+    return {"svg": prefix + room_layer + coverage_start + coverage + suffix,
+            "has_path": bool(route), "has_coverage": has_coverage,
+            "coverage_source": coverage_source, "route_sections": route_sections, "room_statuses": room_statuses}

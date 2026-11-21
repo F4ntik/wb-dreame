@@ -5,14 +5,15 @@ import signal
 import threading
 from hashlib import sha256
 from pathlib import Path
+from time import time
 
 from config import CONFIG, DATA, MODELS, STATE, Refused, read, validate
 from entrance import Entrance
 from history_map import history_position, render_history
 from history_media import obstacle_photo, obstacles
-from jobs import ACTIVE, Jobs, _normalize
+from jobs import ACTIVE, PAUSED, Jobs, _normalize
 from mqtt_namespace import CHANNELS, OWNER_FILE, RetainedSession, encode, lock_namespace, read_owner
-from overlays import read_overlays
+from overlays import live_room_outcomes, read_overlays
 from preferences import apply_preference
 from panel import interactive_map, map_snapshot, render_map_frame
 from robot import TRACKING_STATES, Robot, check_writes_with
@@ -24,6 +25,7 @@ from webui import WebConflict, start_ui
 
 POSITION_STATES = {"PAUSED", "IDLE", "RETURNING", "RETURNING_TO_WASH", "RETURNING_AUTO_EMPTY",
                    "RETURNING_INSTALL_MOP", "RETURNING_REMOVE_MOP", "RETURNING_TO_DRAIN"}
+ROOM_STATUS_TASKS = ACTIVE | PAUSED
 
 
 class Bridge:
@@ -70,9 +72,15 @@ class Bridge:
     def snapshot(self, data):
         tracking = data.get("task") in ACTIVE and data.get("state") in TRACKING_STATES
         station_pause = data.get("task") in ACTIVE and data.get("state") in {"WASHING", "WASHING_PAUSED"}
+        room_status_since = None
+        if data.get("task") in ROOM_STATUS_TASKS:
+            room_status_since = self.latest.get("_room_status_since") if self.latest["online"] else None
+            if room_status_since is None:
+                room_status_since = int(time() * 1000)
         self.latest = {"online": True, "state": data["state"], "battery": data["battery"], "dock_status": data.get("dock_status"),
                        "map": interactive_map(data.get("saved_map"), self.latest.get("map")),
                        "tracking_active": tracking, "_live_plan": data.get("saved_map"), "_station_pause": station_pause,
+                       "_room_status_since": room_status_since,
                        "details": data.get("details", {}), "overlays": data.get("overlays", []), "cleangenius": data.get("cleangenius"),
                        "preferences": data.get("preferences", []), "camera": data.get("camera", {})}
         self.room_names.publish(self.latest["map"])
@@ -105,13 +113,16 @@ class Bridge:
         latest = self.latest.copy()
         saved = latest.pop("_live_plan", None)
         station_pause = latest.pop("_station_pause", False)
+        room_status_since = latest.pop("_room_status_since", None)
+        room_status = {} if latest["online"] and room_status_since is not None else None
         plan, drawing = self.display_map(latest["map"])
         overlays = latest.get("overlays", [])
         cloud = self.cloud
         device = cloud.device if cloud else None
         frame_time = room_id = None
         tracking = latest.get("tracking_active", False)
-        if latest["online"] and device and (tracking or station_pause or latest["state"] in POSITION_STATES):
+        position_allowed = tracking or station_pause or latest["state"] in POSITION_STATES
+        if latest["online"] and device and (position_allowed or room_status is not None):
             if tracking:
                 cloud.note_live_map_demand()
             frame = device.status.current_map
@@ -119,11 +130,15 @@ class Bridge:
                 stamp = (frame.frame_id, frame.timestamp_ms)
                 features = read_overlays(saved, frame, cleaning=tracking or station_pause, station_pause=station_pause)
                 room = frame.robot_segment
+                outcomes = (live_room_outcomes(saved, frame, plan["_room_keys"], room_status_since)
+                            if room_status is not None else None)
                 if stamp == (frame.frame_id, frame.timestamp_ms):
-                    overlays = features
-                    if any(item["kind"] in ("robot", "path", "coverage") for item in features):
+                    if position_allowed:
+                        overlays = features
+                    room_status = outcomes
+                    if outcomes or any(item["kind"] in ("robot", "path", "coverage") for item in overlays):
                         frame_time = stamp[1]
-                    if str(room) in plan["rooms"] and any(item["kind"] == "robot" for item in features):
+                    if str(room) in plan["rooms"] and any(item["kind"] == "robot" for item in overlays):
                         room_id = int(room)
         last = self.jobs.last if self.jobs else None
         if last:
@@ -134,6 +149,7 @@ class Bridge:
             plan = {key: value for key, value in plan.items() if key not in ("_room_keys", "_footprint_bits")}
         return {**latest, "model": self.title, "allow_commands": self.commands_enabled(),
                 "map": plan, "overlays": overlays, "live_frame_at_ms": frame_time, "live_room_id": room_id,
+                "live_room_status": room_status,
                 "last_job": last, "underlay": drawing, "room_names": names}
 
     def web_history(self, timestamp, obstacle_id=None):

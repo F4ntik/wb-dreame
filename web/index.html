@@ -70,6 +70,7 @@
           </div>
         </div>
         <div id="map-legend" class="map-legend" aria-label="Обозначения карты"></div>
+        <div id="live-room-statuses" class="map-legend" aria-label="Статусы комнат"></div>
         <div id="live-coverage-control" class="coverage-control" hidden>
           <label class="underlay-toggle"><input id="live-coverage-switch" type="checkbox" role="switch" aria-describedby="live-coverage-note" checked><span>Убранный пол</span></label>
           <p id="live-coverage-note" class="muted" role="status"></p>
@@ -320,6 +321,8 @@
           </dl>
           <p id="history-run-details" class="history-run-details muted" hidden></p>
           <p id="history-map-layers" class="history-run-details muted"></p>
+          <p id="history-room-status-note" class="history-run-details muted" hidden>В записи нет данных о статусах комнат.</p>
+          <ul id="history-room-statuses" class="history-room-statuses" aria-label="Статусы комнат" hidden></ul>
         </div>
         <div class="history-map-column">
           <div id="history-map-tools" class="history-map-tools" hidden>

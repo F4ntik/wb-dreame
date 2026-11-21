@@ -1,6 +1,17 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { archiveFrame, archiveMapSource, archiveObstacles, archiveRoute, historyRows, historyTotals } from '../web/history.js';
+import { archiveFrame, archiveMapSource, archiveObstacles, archiveRoomStatuses, archiveRoute, historyRows, historyTotals } from '../web/history.js';
+
+test('archive room legend preserves absent evidence and ignores invalid status rows', () => {
+  assert.deepEqual(archiveRoomStatuses([{ id: 1, status: 'unknown' }]), []);
+  assert.deepEqual(archiveRoomStatuses([
+    { id: 1, status: 'skipped', name: 'Кухня' },
+    { id: 2, status: 'unknown' },
+    { id: 2, status: 'completed' },
+    { id: 3, status: 'constructor' },
+    { id: 99, status: 'completed' },
+  ]), [{ name: 'Кухня', status: 'skipped' }, { name: 'Комната 2', status: 'unknown' }]);
+});
 
 test('history admits up to 30 distinct records and totals only confirmed measurements', () => {
   const rows = historyRows([

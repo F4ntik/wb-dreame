@@ -1,5 +1,5 @@
 import { adjustUnderlay, cleaningCoverage, dragZone, jobRequest, mapInfo, mapOverlays, mapView, maxZones, pendingRequest, pointOnMap, preferenceInfo,
-  preferenceRequest, rectanglePaths, requestIdentity, safeMapSvg, svgNS, underlayInfo, underlayUrl, zoneHitsNoGo, zoneInBounds,
+  preferenceRequest, rectanglePaths, requestIdentity, roomStatusLabels, safeMapSvg, svgNS, underlayInfo, underlayUrl, zoneHitsNoGo, zoneInBounds,
   zoneListInBounds, zoneMeasures, zoneProblem } from './controls.js';
 import { scenarios } from './scenarios.js';
 import { initViews, resourceWidget } from './views.js';
@@ -409,11 +409,6 @@ function changeTarget(kind) {
 function replaceMap(next) {
   if (next && map?.id === next.id && map.revision === next.revision) {
     Object.assign(map, { unitsPerMetre: next.unitsPerMetre, floor: next.floor, roomAreas: next.roomAreas, rooms: next.rooms });
-    for (const button of roomList.querySelectorAll('button[data-room]')) {
-      label(button.children[1], map.rooms[button.dataset.room]);
-    }
-    for (const path of svg.querySelectorAll('path[data-room]')) path.setAttribute('aria-label', map.rooms[path.dataset.room]);
-    showRoomAreas();
     return;
   }
   if (!next && !map) return;
@@ -449,7 +444,6 @@ function replaceMap(next) {
     button.append(swatch, make('span', name || `Комната ${id}`), make('small'));
     roomList.append(button);
   }
-  showRoomAreas();
   scene = document.createElementNS(svgNS, 'g');
   scene.classList.add('map-scene');
   scene.append(...svg.childNodes);
@@ -463,12 +457,40 @@ function replaceMap(next) {
   mapHost.replaceChildren(svg, roomPins, robotMarker, zonePins, zoneBadge, zoneHandles);
 }
 
-function showRoomAreas() {
+function renderLiveRoomStatuses(outcomes) {
+  const statuses = new Map();
+  const legend = byId('live-room-statuses');
+  for (const id of Object.keys(map?.rooms || {})) {
+    const value = outcomes?.[id];
+    if (['completed', 'skipped', 'blocked'].includes(value)) statuses.set(id, value);
+  }
+  const states = [...new Set(statuses.values())];
+  if (!states.length && map && outcomes && typeof outcomes === 'object') {
+    label(legend, 'Dreame пока не сообщил статусы комнат.');
+  } else {
+    legend.replaceChildren(...states.map(state => {
+      const item = make('span', roomStatusLabels[state]);
+      item.dataset.roomStatus = state;
+      return item;
+    }));
+  }
   for (const button of roomList.querySelectorAll('button[data-room]')) {
-    const area = map.roomAreas[button.dataset.room];
+    const id = button.dataset.room;
+    const area = map.roomAreas[id];
+    const detail = statuses.size ? [roomStatusLabels[statuses.get(id) || 'unknown']] : [];
+    if (area !== undefined) detail.push(`${measureText(area)} м²`);
+    label(button.children[1], map.rooms[id]);
     const tag = button.lastElementChild;
-    tag.hidden = area === undefined;
-    if (!tag.hidden) label(tag, `${measureText(area)} м²`);
+    label(tag, detail.join(' · '));
+    tag.hidden = !detail.length;
+    tag.dataset.roomStatus = statuses.get(id) || '';
+  }
+  for (const path of svg?.querySelectorAll('path[data-room]') || []) {
+    const id = path.dataset.room;
+    const status = statuses.get(id);
+    path.dataset.roomStatus = status || '';
+    path.setAttribute('aria-label', statuses.size
+      ? `${map.rooms[id]} · ${roomStatusLabels[status || 'unknown']}` : map.rooms[id]);
   }
 }
 
@@ -515,7 +537,8 @@ function renderLivePosition() {
   const confirmedTime = Number.isSafeInteger(timestamp) && timestamp > 0 && timestamp <= 8.64e15;
   const suppliedRoom = confirmedTime && map && Number.isSafeInteger(roomId) && Object.hasOwn(map.rooms, roomId)
     ? map.rooms[roomId] : null;
-  const dated = confirmedTime && (point || suppliedRoom || features.some(feature => ['path', 'coverage'].includes(feature.kind)));
+  const outcomes = Object.keys(telemetry.live_room_status || {}).length;
+  const dated = confirmedTime && (point || suppliedRoom || outcomes || features.some(feature => ['path', 'coverage'].includes(feature.kind)));
   liveFrameTime.hidden = !dated;
   if (dated) {
     liveFrameTime.dateTime = new Date(timestamp).toISOString();
@@ -1097,6 +1120,7 @@ function render(data, keepAlignment = false) {
   label(byId('dock-state'), dockStatus(data));
   label(byId('command-state'), data.allow_commands === true ? 'Команды доступны' : 'Просмотр и проверка');
   replaceMap(online ? mapInfo(data.map, data.room_names) : null);
+  renderLiveRoomStatuses(data.live_room_status);
   if (!keepAlignment || !underlayCalibration) renderUnderlay(data.underlay);
   renderOverlays(data.overlays, data.map?.overlays);
   renderLivePosition();

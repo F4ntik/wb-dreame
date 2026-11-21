@@ -1,4 +1,5 @@
 import { glyph } from './views.js';
+import { roomStatusLabels } from './controls.js';
 const day = new Intl.DateTimeFormat('ru-RU', { dateStyle: 'medium', timeStyle: 'short' });
 const recordDay = new Intl.DateTimeFormat('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' });
 const recordTime = new Intl.DateTimeFormat('ru-RU', { hour: '2-digit', minute: '2-digit' });
@@ -70,6 +71,21 @@ export function archiveFrame(width, height, imageWidth, imageHeight, zoom) {
   if (Math.min(width, height, imageWidth, imageHeight) <= 0) return null;
   const scale = Math.min(width / imageWidth, height / imageHeight) * zoom / 100;
   return [imageWidth * scale, imageHeight * scale];
+}
+
+export function archiveRoomStatuses(value) {
+  const seen = new Set();
+  const rooms = [];
+  if (Array.isArray(value) && value.length <= 63) {
+    for (const room of value) {
+      const id = room?.id;
+      if (!Number.isSafeInteger(id) || id < 1 || id > 63 || seen.has(id)
+          || typeof room.status !== 'string' || !Object.hasOwn(roomStatusLabels, room.status)) continue;
+      seen.add(id);
+      rooms.push({ name: text(room.name, 100) || `Комната ${id}`, status: room.status });
+    }
+  }
+  return rooms.some(room => room.status !== 'unknown') ? rooms : [];
 }
 
 function percentPoint(p) {
@@ -161,6 +177,8 @@ export function historyView(coverageSwitches) {
   const obstacleList = $('history-obstacle-list');
   const pinSwitch = $('history-show-pins');
   const coverageSwitch = $('history-coverage-switch');
+  const roomStatuses = $('history-room-statuses');
+  const roomStatusNote = $('history-room-status-note');
   pinSwitch.addEventListener('change', () => {
     const pins = mapLayer.querySelector('.history-pins');
     if (pins) pins.hidden = !pinSwitch.checked;
@@ -387,6 +405,8 @@ export function historyView(coverageSwitches) {
     delete dialog.dataset.map;
     $('history-map-tools').hidden = true;
     $('history-map-layers').textContent = '';
+    roomStatuses.hidden = roomStatusNote.hidden = true;
+    roomStatuses.replaceChildren();
     $('history-pins-choice').hidden = true;
     $('history-coverage-choice').hidden = true;
     $('history-obstacles').hidden = true;
@@ -521,6 +541,14 @@ export function historyView(coverageSwitches) {
         dialog.dataset.map = 'true';
         $('history-map-tools').hidden = false;
         $('history-coverage-choice').hidden = !archiveImage.plain;
+        const rooms = archiveRoomStatuses(payload.room_statuses);
+        roomStatuses.hidden = !rooms.length;
+        roomStatusNote.hidden = Boolean(rooms.length);
+        roomStatuses.replaceChildren(...rooms.map(({ name, status }) => {
+          const item = element('li', `${name} · ${roomStatusLabels[status]}`);
+          item.dataset.roomStatus = status;
+          return item;
+        }));
         mapInfo('');
         showReplay(payload.route_sections);
         showObstacles(archiveObstacles(payload.obstacles));
