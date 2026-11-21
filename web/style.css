@@ -108,6 +108,7 @@ h1 { font-size: 1.28rem; letter-spacing: -.04em; font-weight: 720; }
 }
 .zone-measure { position: absolute; top: 0; left: 0; max-width: calc(100% - 16px); padding: .37rem .55rem; background: #fff; color: #16433d; border: 1px solid #c8e1da; border-radius: 8px; box-shadow: 0 2px 7px #193e3330; pointer-events: none; z-index: 1; font-size: .75rem; line-height: 1.35; font-variant-numeric: tabular-nums; }
 .zone-measure > * { display: block; }
+#zone-measure-shelf > .zone-measure { position: static; width: fit-content; margin-top: .875rem; box-shadow: none; }
 #zone-warning:not(:empty) { color: #93403d; }
 .zone-measure-summary { margin-bottom: 0; }
 .underlay-controls { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .45rem .75rem; padding: .48rem .6rem; margin: .4rem 0 .72rem; border-radius: 11px; background: #f2f6f6; }

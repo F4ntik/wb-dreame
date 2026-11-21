@@ -50,6 +50,27 @@ function floorInfo(floor, [left, bottom, right, top]) {
   return { gridSize, runs: merged };
 }
 
+// Coordinates are CSS pixels after the SVG transform, including touch targets outside a small zone.
+export function zoneMeasurePlacement(frame, zone, handles, labelWidth, labelHeight, otherZones) {
+  const gap = 6;
+  const limitX = frame.right - gap - labelWidth;
+  const limitY = frame.bottom - gap - labelHeight;
+  if (limitX < frame.left + gap || limitY < frame.top + gap) return null;
+  const x = Math.max(frame.left + gap, Math.min(limitX, (zone.left + zone.right - labelWidth) / 2));
+  const y = Math.max(frame.top + gap, Math.min(limitY, (zone.top + zone.bottom - labelHeight) / 2));
+  const editing = [zone, ...handles];
+  const candidates = [
+    [x, Math.min(...editing.map(rect => rect.top)) - gap - labelHeight],
+    [x, Math.max(...editing.map(rect => rect.bottom)) + gap],
+    [Math.max(...editing.map(rect => rect.right)) + gap, y],
+    [Math.min(...editing.map(rect => rect.left)) - gap - labelWidth, y],
+  ];
+  return candidates.find(([left, top]) => left >= frame.left + gap && left <= limitX &&
+    top >= frame.top + gap && top <= limitY && otherZones.every(rect =>
+      left + labelWidth + gap <= rect.left || left >= rect.right + gap ||
+      top + labelHeight + gap <= rect.top || top >= rect.bottom + gap)) ?? null;
+}
+
 export function zoneMeasures([x0, y0, x1, y1], units, floor) {
   if (!units) return null;
   const width = (x1 - x0) / units;

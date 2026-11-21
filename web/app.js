@@ -1,6 +1,6 @@
 import { adjustUnderlay, cleaningCoverage, dragZone, jobBlock, jobRequest, mapInfo, mapOverlays, mapView, maxZones, pendingRequest, pointOnMap, preferenceInfo,
   preferenceRequest, rectanglePaths, requestIdentity, roomStatusLabels, safeMapSvg, svgNS, underlayInfo, underlayUrl, zoneHitsNoGo, zoneInBounds,
-  zoneListInBounds, zoneMeasures, zoneProblem } from './controls.js';
+  zoneListInBounds, zoneMeasurePlacement, zoneMeasures, zoneProblem } from './controls.js';
 import { scenarios } from './scenarios.js';
 import { confirmMessage, initViews, panelNavigation } from './views.js';
 import { resourceWidget } from './resources.js';
@@ -19,6 +19,7 @@ roomPins.setAttribute('aria-hidden', 'true');
 const form = byId('job-form');
 const zoneFields = ['zone-x1', 'zone-y1', 'zone-x2', 'zone-y2'].map(byId);
 const zoneBadge = byId('zone-measure');
+const zoneShelf = byId('zone-measure-shelf');
 const zoneSummary = byId('zone-measure-summary');
 const zoneTools = byId('zone-tools');
 const zoneList = byId('zone-list');
@@ -267,7 +268,7 @@ function updateOverlay() {
   }
   zoneLayer?.replaceChildren(...rectangles);
   zonePins.replaceChildren(...pins);
-  zoneBadge.hidden = !zone;
+  zoneBadge.hidden = !zone || !matrix || !mapHost.clientWidth;
   zoneHandles.hidden = !zone;
   removeMapZone.hidden = !zone || !matrix || Boolean(drag);
   zoneSummary.hidden = !zone || Boolean(drag);
@@ -282,16 +283,22 @@ function updateOverlay() {
   label(byId('zone-warning'), warning);
   if (!drag) label(zoneSummary, [dimensions, floor, warning].filter(Boolean).join('. '));
 
-  if (!matrix) return;
+  if (zoneBadge.hidden) return;
   const corners = [[x1, -y1], [x1, -y2], [x2, -y1], [x2, -y2]]
     .map(([x, y]) => new DOMPoint(x, y).matrixTransform(matrix));
-  const margin = 7;
-  const centreX = (Math.min(...corners.map(point => point.x)) + Math.max(...corners.map(point => point.x))) / 2 - host.left;
-  const top = Math.min(...corners.map(point => point.y)) - host.top;
-  const x = Math.max(margin, Math.min(host.width - zoneBadge.offsetWidth - margin, centreX - zoneBadge.offsetWidth / 2));
-  const y = Math.max(margin, Math.min(host.height - zoneBadge.offsetHeight - margin, top - zoneBadge.offsetHeight - margin));
-  zoneBadge.style.transform = `translate(${x}px, ${y}px)`;
   positionZoneHandles(corners, host);
+  const left = host.left + mapHost.clientLeft;
+  const top = host.top + mapHost.clientTop;
+  const frame = { left, top, right: left + mapHost.clientWidth, bottom: top + mapHost.clientHeight };
+  const selected = rectangles.find(rect => rect.dataset.selected === 'true');
+  const others = rectangles.filter(rect => rect !== selected).map(rect => rect.getBoundingClientRect());
+  const controls = [...zoneHandles.children];
+  if (!removeMapZone.hidden) controls.push(removeMapZone);
+  const position = zoneMeasurePlacement(frame, selected.getBoundingClientRect(), controls.map(node => node.getBoundingClientRect()),
+    zoneBadge.offsetWidth, zoneBadge.offsetHeight, others);
+  const parent = position ? mapHost : zoneShelf;
+  if (zoneBadge.parentElement !== parent) parent.append(zoneBadge);
+  zoneBadge.style.transform = position ? `translate(${position[0] - left}px, ${position[1] - top}px)` : '';
 }
 
 function positionZoneHandles([first, upper, right, last], host) {
@@ -338,14 +345,10 @@ function positionZoneHandles([first, upper, right, last], host) {
   const inset = removeMapZone.offsetWidth / 2 + 4;
   const gap = inset + zoneMove.offsetWidth / 2;
   const candidates = [[extentX + gap, 0], [-extentX - gap, 0], [0, extentY + gap], [0, -extentY - gap]];
-  const badge = zoneBadge.getBoundingClientRect();
   const point = candidates.find(([dx, dy]) => {
     const x = centreX + dx;
     const y = centreY + dy;
-    const screenX = x + host.left + mapHost.clientLeft;
-    const screenY = y + host.top + mapHost.clientTop;
-    return x >= inset && x <= width - inset && y >= inset && y <= height - inset &&
-      (screenX + inset < badge.left || screenX - inset > badge.right || screenY + inset < badge.top || screenY - inset > badge.bottom);
+    return x >= inset && x <= width - inset && y >= inset && y <= height - inset;
   });
   // A zone filling the map leaves room for the button between the handles.
   place(removeMapZone, ...(point ?? [(xx - yx) / 2, (xy - yy) / 2]));
