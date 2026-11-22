@@ -102,6 +102,7 @@ class PanelTest(unittest.TestCase):
         saved = sample_map()
         saved.saved_map = True
         frame = MapData()
+        frame.map_id = 29
         frame.saved_map_id, frame.version, frame.dimensions = saved.map_id, saved.version, saved.dimensions
         frame.saved_map_status, frame.frame_type, frame.frame_id = 2, MapFrameType.I.value, 113
         frame.timestamp_ms = int(now.return_value * 1000)
@@ -116,6 +117,7 @@ class PanelTest(unittest.TestCase):
             self.assertNotIn("_live_plan", view)
             self.assertNotIn("_footprint_bits", view["map"])
             self.assertEqual((view["live_room_id"], view["live_frame_at_ms"]), (1, frame.timestamp_ms))
+            self.assertEqual((view["live_map_id"], view["live_frame_id"]), (29, 113))
             self.assertEqual([f["kind"] for f in view["overlays"]], ["robot"])
             frame.docked = True
             x, y = frame.robot_position.x, frame.robot_position.y
@@ -129,6 +131,7 @@ class PanelTest(unittest.TestCase):
             frame.timestamp_ms -= 125_000
             stale = bridge.web_state()
             self.assertEqual((stale["overlays"], stale["live_room_id"], stale["live_frame_at_ms"]), ([], None, None))
+            self.assertEqual((stale["live_map_id"], stale["live_frame_id"]), (None, None))
             bridge.snapshot({**sample, "saved_map": None})
             self.assertTrue(bridge.web_state()["tracking_active"])
             self.assertEqual(bridge.cloud.note_live_map_demand.call_count, 3)

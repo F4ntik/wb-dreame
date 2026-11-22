@@ -74,10 +74,21 @@ test('archive replay keeps recorded point order and does not approximate gaps', 
     { mode: 'bogus', points: [[20, 99]] },
     { mode: 'L', points: [[25, 101], [0, 100]] },
   ]), [
-    { mode: 'S', position: [10, 20] }, { mode: 'S', position: [11, 25] },
-    { mode: 'W', position: [80, 78] }, { mode: 'W', position: [77, 79] },
+    { mode: 'S', position: [10, 20], direction: [1, 5] }, { mode: 'S', position: [11, 25], direction: [1, 5] },
+    { mode: 'W', position: [80, 78], direction: [-3, 1] }, { mode: 'W', position: [77, 79], direction: [-3, 1] },
     { mode: 'L', position: [0, 100] },
   ]);
+});
+
+test('archive replay faces the recorded direction at corners and repeated points independently of seek order', () => {
+  const frames = archiveRoute([
+    { mode: 'W', points: [[20, 70], [20, 70], [35, 70], [35, 70], [35, 50], [35, 30], null, [10, 0]] },
+    { mode: 'S', points: [[5, 40], [15, 50]] },
+  ]);
+  const directions = [[15, 0], [15, 0], [0, -20], [0, -20], [0, -20], [0, -20], undefined, [10, 10], [10, 10]];
+  assert.deepEqual(frames.map(frame => frame.direction), directions);
+  assert.deepEqual([8, 7, 4, 3, 2, 1, 0].map(i => frames[i].direction),
+    [[10, 10], [10, 10], [0, -20], [0, -20], [0, -20], [15, 0], [15, 0]]);
 });
 
 test('archive fits both dimensions before applying relative zoom', () => {

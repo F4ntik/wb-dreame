@@ -205,10 +205,15 @@ def read_overlays(saved, current, *, cleaning=False, station_pause=False):
             return point if _in_grid(point, grid) and _in_grid(point, live_grid) else None
 
         # On the dock the decoder may substitute the base for an absent robot position.
-        position = _xy(current.robot_position)
+        robot = current.robot_position
+        position = _xy(robot)
         if (not station_pause and position and project(*position)
                 and not (current.docked and position == _xy(current.charger_position))):
-            result.insert(0, {"kind": "robot", "points": [list(position)]})
+            marker = {"kind": "robot", "points": [list(position)]}
+            angle = getattr(robot, "a", None)
+            if type(angle) in (int, float) and -360 <= angle <= 360:
+                marker["angle"] = angle
+            result.insert(0, marker)
         if cleaning and (not current.docked or station_pause):
             coverage = _frame_coverage(saved, current, grid, live_grid)
             if coverage is not None:

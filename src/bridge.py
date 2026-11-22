@@ -149,7 +149,7 @@ class Bridge:
         overlays = latest.get("overlays", [])
         cloud = self.cloud
         device = cloud.device if cloud else None
-        frame_time = room_id = None
+        frame_time = live_map_id = live_frame_id = room_id = None
         tracking = latest.get("tracking_active", False)
         position_allowed = tracking or station_pause or latest["state"] in POSITION_STATES
         if latest["online"] and device and (position_allowed or room_status is not None):
@@ -157,17 +157,17 @@ class Bridge:
                 cloud.note_live_map_demand()
             frame = device.status.current_map
             if saved is not None and plan and frame:
-                stamp = (frame.frame_id, frame.timestamp_ms)
+                stamp = (getattr(frame, "map_id", None), frame.frame_id, frame.timestamp_ms)
                 features = read_overlays(saved, frame, cleaning=tracking or station_pause, station_pause=station_pause)
                 room = frame.robot_segment
                 outcomes = (live_room_outcomes(saved, frame, plan["_room_keys"], room_status_since)
                             if room_status is not None else None)
-                if stamp == (frame.frame_id, frame.timestamp_ms):
+                if stamp == (getattr(frame, "map_id", None), frame.frame_id, frame.timestamp_ms):
                     if position_allowed:
                         overlays = features
                     room_status = outcomes
                     if outcomes or any(item["kind"] in ("robot", "path", "coverage") for item in overlays):
-                        frame_time = stamp[1]
+                        live_map_id, live_frame_id, frame_time = stamp
                     if str(room) in plan["rooms"] and any(item["kind"] == "robot" for item in overlays):
                         room_id = int(room)
         last = self.jobs.last if self.jobs else None
@@ -180,7 +180,8 @@ class Bridge:
         if plan:
             plan = {key: value for key, value in plan.items() if key not in ("_room_keys", "_footprint_bits")}
         return {**latest, "state_title": STATE_LABELS.get(latest["state"], latest["state"]), "model": self.title, "allow_commands": self.commands_enabled(),
-                "panel_navigation": self.panel_navigation, "map": plan, "overlays": overlays, "live_frame_at_ms": frame_time, "live_room_id": room_id,
+                "panel_navigation": self.panel_navigation, "map": plan, "overlays": overlays, "live_frame_at_ms": frame_time,
+                "live_map_id": live_map_id, "live_frame_id": live_frame_id, "live_room_id": room_id,
                 "live_room_status": room_status,
                 "last_job": last, "underlay": drawing, "room_names": names,
                 "reclean_attempt": reclean_attempt["status"] if reclean_attempt else None}

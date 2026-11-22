@@ -1,5 +1,8 @@
+import base64
 import json
+import struct
 import unittest
+import zlib
 from copy import deepcopy
 from unittest.mock import patch
 
@@ -57,7 +60,7 @@ class OverlaysTest(unittest.TestCase):
     def test_position_requires_verified_map_and_current_frame(self, _):
         saved = saved_plan()
         current = current_frame(saved)
-        marker = [{"kind": "robot", "points": [[15, 25]]}]
+        marker = [{"kind": "robot", "points": [[15, 25]], "angle": 90}]
         self.assertEqual(read_overlays(saved, current), marker)
 
         current.dimensions = MapImageDimensions(-50, -50, 4, 4, 50)
@@ -69,6 +72,29 @@ class OverlaysTest(unittest.TestCase):
         current.charger_position = saved.charger_position
         current.dimensions = MapImageDimensions(-50, -75, 4, 4, 50)
         self.assertEqual(read_overlays(saved, current), [])
+
+    @patch("overlays.time", return_value=NOW)
+    def test_live_angle_uses_decoded_signed_degrees_and_preserves_xy_without_angle(self, _):
+        from vendor.map import DreameVacuumMapDecoder
+
+        saved = saved_plan()
+        metadata = json.dumps({"saveMapId": 7, "ris": 2, "timestamp_ms": NOW * 1000,
+                               "tr": "W15,125L0,-100"}).encode()
+        for angle in (-90, 0, 270):
+            with self.subTest(angle=angle):
+                header = struct.pack("<hhB11h", 26, 12, MapFrameType.I.value,
+                                     15, 25, angle, 0, 0, 180, 50, 6, 6, -100, -100)
+                packed = base64.b64encode(zlib.compress(header + bytes([1] * 36) + metadata)).decode()
+                frame, _ = DreameVacuumMapDecoder.decode_map(packed, 3)
+                marker = {"kind": "robot", "points": [[15, 25]], "angle": angle}
+                self.assertEqual(read_overlays(saved, frame), [marker])
+        frame = current_frame(saved)
+        for angle in (None, 32767, float("nan"), True, "90"):
+            with self.subTest(angle=angle):
+                frame.robot_position.a = angle
+                self.assertEqual(read_overlays(saved, frame), [{"kind": "robot", "points": [[15, 25]]}])
+        del frame.robot_position.a
+        self.assertEqual(read_overlays(saved, frame), [{"kind": "robot", "points": [[15, 25]]}])
 
         for field, value in (
             ("saved_map_id", 8), ("history_map", True), ("temporary_map", True),

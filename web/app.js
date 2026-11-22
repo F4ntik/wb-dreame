@@ -1,15 +1,16 @@
-import { adjustUnderlay, cleaningCoverage, dragZone, jobBlock, jobRequest, mapInfo, mapOverlays, mapView, maxZones, pendingRequest, pointOnMap, preferenceInfo,
+import { adjustUnderlay, cleaningCoverage, dragZone, jobBlock, jobRequest, liveRobotPose, mapInfo, mapOverlays, mapView, maxZones, pendingRequest, pointOnMap, preferenceInfo,
   preferenceRequest, rectanglePaths, requestIdentity, roomStatusLabels, safeMapSvg, svgNS, underlayInfo, underlayUrl, zoneHitsNoGo, zoneInBounds,
   zoneHandleLayout, zoneListInBounds, zoneMeasurePlacement, zoneMeasures, zoneProblem, zoneResizeCursor } from './controls.js';
 import { scenarios } from './scenarios.js';
-import { confirmMessage, glyph, initViews, mapRobotIcon, panelNavigation, robotToDockScale } from './views.js';
+import { confirmMessage, glyph, initViews, mapRobotIcon, panelNavigation, robotToDockScale, turnRobotIcon } from './views.js';
 import { resourceWidget } from './resources.js';
 import { historyRows, historyView } from './history.js';
 
 const byId = id => document.getElementById(id);
 const mapHost = byId('map');
 const robotMarker = byId('robot-marker');
-robotMarker.append(mapRobotIcon());
+const robotArt = mapRobotIcon();
+robotMarker.append(robotArt);
 const livePosition = byId('live-position');
 const liveFrameTime = byId('live-frame-time');
 const roomList = byId('room-list');
@@ -121,6 +122,7 @@ let zoneLayer = null;
 let overlaysGroup = null;
 let overlaysKey = '';
 let features = [];
+let robotPose = null;
 let underlayKey = '';
 let underlayImage = null;
 let underlayReady = false;
@@ -556,6 +558,7 @@ function replaceMap(next) {
   overlaysGroup = null;
   overlaysKey = '';
   features = [];
+  robotPose = null;
   underlayImage = null;
   underlayReady = false;
   underlayCalibration = null;
@@ -679,6 +682,9 @@ function updateRobotMarker() {
   const bounds = mapHost.getBoundingClientRect();
   robotMarker.style.left = `${screen.x - bounds.left - mapHost.clientLeft}px`;
   robotMarker.style.top = `${screen.y - bounds.top - mapHost.clientTop}px`;
+  const direction = robotPose?.direction;
+  turnRobotIcon(robotArt, direction && [matrix.a * direction[0] + matrix.c * direction[1],
+    matrix.b * direction[0] + matrix.d * direction[1]]);
   return screen;
 }
 
@@ -771,6 +777,10 @@ function renderOverlays(items, savedItems) {
     const [[x, y]] = points;
     return x >= left && x <= right && y >= -top && y <= -bottom;
   });
+  const robot = features.find(item => item.kind === 'robot');
+  const route = features.findLast(item => item.kind === 'path')?.points;
+  const frame = { time: telemetry.live_frame_at_ms, mapId: telemetry.live_map_id, id: telemetry.live_frame_id };
+  robotPose = liveRobotPose(robotPose, robot, route, frame, map.unitsPerMetre);
   byId('route-choice').hidden = !features.some(item => item.kind === 'path');
   const coverage = cleaningCoverage(features, map);
   control.hidden = !trackingActive() && !coverage;

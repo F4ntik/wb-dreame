@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { adjustUnderlay, cleaningCoverage, dragZone, jobBlock, jobRequest, mapInfo, mapOverlays, mapView, maxZones, pendingRequest, pointOnMap, preferenceInfo,
+import { adjustUnderlay, cleaningCoverage, dragZone, jobBlock, jobRequest, liveRobotPose, mapInfo, mapOverlays, mapView, maxZones, pendingRequest, pointOnMap, preferenceInfo,
   preferenceRequest, rectanglePaths, requestIdentity, roomContour, underlayInfo, zoneHitsNoGo, zoneInBounds, zoneMeasures, zoneProblem } from '../web/controls.js';
+import { turnRobotIcon } from '../web/views.js';
 
 const map = mapInfo({ id: 7, revision: 'r2', bounds: [-300, -100, 500, 650],
   rooms: { 1: 'Кухня', 3: 'Холл', wrong: 'Не комната' }, svg: '<svg/>' });
@@ -178,6 +179,50 @@ test('overlay coordinates invert only Y and reject malformed points', () => {
     { kind: 'path', points: [[0, 15], [NaN, 20]] }, { kind: 'no_mop', points: [[100, 90], [25, 64]] },
     { kind: 'script', points: [[0, 0]] },
   ]), [{ kind: 'wall', points: [[-40, -12], [30, 50]] }, { kind: 'robot', points: [[-20, 10]] }]);
+});
+
+test('live map faces the Dreame angle first, otherwise the nearby end of the current route section', () => {
+  const read = angle => mapOverlays([
+    { kind: 'path', mode: 'W', points: [[0, 0], [500, 0]] },
+    { kind: 'path', mode: 'M', points: [[700, 300], [700, 450], [700, 455]] },
+    { kind: 'robot', points: [[700, 460]], angle },
+  ]);
+  const frame = { time: 20_000, mapId: 26, id: 7 };
+  const icon = { style: {} };
+  for (const [angle, rotation] of [[0, 90], [90, 0], [180, -90], [-90, 180]]) {
+    const [, track, robot] = read(angle);
+    turnRobotIcon(icon, liveRobotPose(null, robot, track.points, frame).direction);
+    assert.equal(icon.style.transform, `rotate(${rotation}deg)`);
+  }
+  for (const angle of [undefined, null, NaN, 32767, '90']) {
+    const [oldTrack, track, robot] = read(angle);
+    assert.equal(robot.angle, undefined);
+    assert.deepEqual(liveRobotPose(null, robot, track.points, frame).direction, [0, -155]);
+    assert.equal(liveRobotPose(null, robot, oldTrack.points, frame).direction, null);
+  }
+});
+
+test('live map infers motion from fresh positions, holds course in noise and resets on interrupted frames', () => {
+  const robot = (x, y) => ({ kind: 'robot', points: [[x, y]] });
+  const first = { time: 20_000, mapId: 26, id: 7 };
+  const next = (time, id) => ({ ...first, time, id });
+  const firstPose = liveRobotPose(null, robot(500, -500), null, first);
+  const track = [[500, -600], [500, -500]];
+  assert.equal(firstPose.direction, null);
+  const moving = liveRobotPose(firstPose, robot(560, -500), null, next(22_000, 9));
+  assert.deepEqual(moving.direction, [60, 0]);
+  assert.deepEqual(liveRobotPose(moving, robot(560, -700), null, moving.frame).direction, [60, 0]);
+  assert.deepEqual(liveRobotPose(moving, robot(565, -508), null, next(24_000, 10)).direction, [60, 0]);
+  assert.deepEqual(liveRobotPose(moving, robot(560, -500), track, next(24_000, 10)).direction, [60, 0]);
+  assert.deepEqual(liveRobotPose(moving, robot(560, -700), null, next(24_000, 10)).direction, [0, -200]);
+  for (const frame of [next(19_000, 10), next(62_001, 10), next(24_000, 1), next(null, 10),
+    { ...first, time: 24_000, mapId: 27 }]) {
+    assert.equal(liveRobotPose(moving, robot(560, -700), null, frame).direction, null);
+  }
+  assert.equal(liveRobotPose(moving, robot(9800, -700), null, next(24_000, 10)).direction, null);
+  assert.equal(liveRobotPose(moving, null, track, next(24_000, 10)), null);
+  const docked = mapOverlays([{ kind: 'robot', points: [[0, 0]], angle: 90 }], null, 'docked');
+  assert.deepEqual(docked, []);
 });
 
 test('dense live overlays preserve the robot and the end of separate recorded path sections', () => {

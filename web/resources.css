@@ -17,7 +17,7 @@
 .supply-name { min-width: 0; display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: .65rem; }
 .service-photo { display: grid; place-items: center; position: relative; aspect-ratio: 1; overflow: hidden; border-radius: 10px; color: var(--muted); background: var(--subtle); isolation: isolate; }
 /* The RGB thumbnails have a light matte built into the image. */
-.service-photo:has(img[data-loaded]) { background: #f4f5f2; }
+.service-photo:has(img[data-loaded]) { background: #f4f5f2; box-shadow: inset 0 0 0 1px #1113; }
 .service-photo .ui-glyph { width: 1.52rem; height: 1.52rem; stroke-width: 1.5; }
 .service-photo img { position: absolute; inset: 0; width: 100%; height: 100%; padding: 4px; object-fit: contain; mix-blend-mode: multiply; opacity: 0; }
 .service-photo img[data-loaded] { opacity: 1; }
@@ -71,9 +71,10 @@
 .service-total dd { font-size: 1rem; font-weight: 660; }
 .service-reference { padding-block: .3rem; }
 .service-reference summary { min-height: 44px; display: flex; justify-content: space-between; align-items: center; gap: .5rem; cursor: pointer; list-style: none; font-size: .9rem; font-weight: 620; }
+.service-reference summary:hover { color: var(--accent); }
 .service-reference summary:focus-visible { outline-offset: -2px; border-radius: 6px; }
 .service-reference summary::-webkit-details-marker { display: none; }
-.service-reference summary::after { content: ''; width: 7px; height: 7px; margin-right: .2rem; border: solid var(--muted); border-width: 0 1.5px 1.5px 0; transform: rotate(45deg); }
+.service-reference summary::after { content: ''; width: 7px; height: 7px; flex: none; margin-right: .2rem; border: solid currentColor; border-width: 0 2px 2px 0; transform: rotate(45deg); }
 .service-reference[open] summary::after { transform: rotate(225deg); }
 .service-reference p { margin: .2rem 0 .6rem; color: var(--muted); font-size: .78rem; line-height: 1.35; }
 .service-reference ul { list-style: none; padding: 0; margin: 0 0 .6rem; }

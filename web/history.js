@@ -1,4 +1,4 @@
-import { glyph, mapRobotIcon, robotToDockScale } from './views.js';
+import { glyph, mapRobotIcon, robotToDockScale, turnRobotIcon } from './views.js';
 import { roomStatusLabels } from './controls.js';
 const day = new Intl.DateTimeFormat('ru-RU', { dateStyle: 'medium', timeStyle: 'short' });
 const recordDay = new Intl.DateTimeFormat('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' });
@@ -127,9 +127,26 @@ export function archiveRoute(sections) {
   const frames = [];
   for (const section of sections.slice(0, 1024)) {
     if (!section || !Object.hasOwn(replayModes, section.mode) || !Array.isArray(section.points)) continue;
+    let samePosition = frames.length;
+    let previous = null;
+    let direction = null;
     for (const point of section.points.slice(0, 20000)) {
       const position = percentPoint(point);
-      if (position) frames.push({ position, mode: section.mode });
+      if (!position) {
+        samePosition = frames.length;
+        previous = direction = null;
+        continue;
+      }
+      if (previous && (previous[0] !== position[0] || previous[1] !== position[1])) {
+        direction = [position[0] - previous[0], position[1] - previous[1]];
+        // At a corner face the outgoing edge. The last point keeps its incoming direction.
+        for (let i = samePosition; i < frames.length; i++) frames[i].direction = direction;
+        samePosition = frames.length;
+      }
+      const frame = { position, mode: section.mode };
+      if (direction) frame.direction = direction;
+      frames.push(frame);
+      previous = position;
       if (frames.length === 20000) return frames;
     }
   }
@@ -374,9 +391,11 @@ export function historyView(coverageSwitches) {
   function drawFrame(index) {
     if (!frames[index]) return;
     frame = index;
-    const { position, mode } = frames[frame];
+    const { position, mode, direction } = frames[frame];
     routeMarker.style.left = `${position[0]}%`;
     routeMarker.style.top = `${position[1]}%`;
+    const { naturalWidth, naturalHeight } = archiveImage.image;
+    turnRobotIcon(routeMarker.firstElementChild, direction && [direction[0] * naturalWidth, direction[1] * naturalHeight]);
     scrub.value = String(frame);
     scrub.setAttribute('aria-valuetext', `${frame + 1} из ${frames.length}. ${replayModes[mode]}`);
     $('history-replay-step').textContent = `${frame + 1} из ${frames.length}`;

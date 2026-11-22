@@ -32,6 +32,13 @@ export function mapRobotIcon() {
   return document.getElementById('map-robot-art').content.firstElementChild.cloneNode(true);
 }
 
+export function turnRobotIcon(icon, direction) {
+  // The bumper and the right-hand side brush are at the top of the artwork.
+  const rotation = direction && 90 + Math.atan2(direction[1], direction[0]) * 180 / Math.PI;
+  icon.style.transformOrigin = 'center';
+  icon.style.transform = direction ? `rotate(${rotation}deg)` : '';
+}
+
 export function glyph(name) {
   const svg = document.createElementNS(ns, 'svg');
   svg.setAttribute('viewBox', '0 0 24 24');

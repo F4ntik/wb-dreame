@@ -314,7 +314,11 @@ export function mapOverlays(items, savedItems, dockStatus) {
         coverage = { kind: 'coverage', rects: rects.map(([x, y, width, height]) => [x, -y - height, width, height]) };
       }
     } else if (item.kind === 'robot') {
-      if (liveRobot) robot = geometry('robot', Array.isArray(item.points) ? item.points.slice(0, 1) : null) || robot;
+      if (!liveRobot) continue;
+      const shape = geometry('robot', Array.isArray(item.points) ? item.points.slice(0, 1) : null);
+      if (!shape) continue;
+      if (Number.isFinite(item.angle) && Math.abs(item.angle) <= 360) shape.angle = item.angle;
+      robot = shape;
     } else if (objects.length < 128) {
       const shape = geometry(item.kind, item.points);
       if (shape) objects.push(shape);
@@ -331,6 +335,41 @@ export function mapOverlays(items, savedItems, dockStatus) {
     budget -= shape.points.length;
   }
   return [...(coverage ? [coverage] : []), ...objects, ...route.reverse(), ...(robot ? [robot] : [])];
+}
+
+const displacement = ([x, y], [nextX, nextY]) => [nextX - x, nextY - y];
+
+function trackDirection(route, position, minimum, tolerance) {
+  const end = route?.at(-1);
+  if (!end || Math.hypot(...displacement(end, position)) > tolerance) return null;
+  for (let i = route.length - 2; i >= 0; i--) {
+    const step = displacement(route[i], end);
+    if (Math.hypot(...step) >= minimum) return step;
+  }
+  return null;
+}
+
+export function liveRobotPose(previous, robot, route, frame, unitsPerMetre = 1000) {
+  if (!robot) return null;
+  const position = robot.points[0];
+  const units = unitsPerMetre || 1000; // Native Dreame coordinates are in millimetres.
+  const minimum = units * .025;
+  const elapsed = frame.time - previous?.frame.time;
+  if (!previous || !Number.isSafeInteger(frame.time) || !Number.isSafeInteger(previous.frame.time)
+      || frame.time <= 0 || previous.frame.time <= 0 || elapsed < 0 || elapsed > 40_000
+      || frame.mapId !== previous.frame.mapId || frame.id < previous.frame.id) previous = null;
+  let movement = previous && displacement(previous.anchor, position);
+  const distance = movement && Math.hypot(...movement);
+  if (elapsed > 0 && distance > units * .75 * elapsed / 1000 + minimum) previous = movement = null;
+  const moved = movement && elapsed > 0 && distance >= minimum;
+  const end = route?.at(-1);
+  const trackAdvanced = end && (!previous?.end || end[0] !== previous.end[0] || end[1] !== previous.end[1]);
+  const fromTrack = (!previous?.direction || (moved && trackAdvanced)) && trackDirection(route, position, minimum, units * .15);
+  // Dreame measures counter-clockwise from +X; SVG Y increases downwards.
+  const radians = robot.angle * Math.PI / 180;
+  const direction = Number.isFinite(radians) ? [Math.cos(radians), -Math.sin(radians)]
+    : fromTrack || (moved && movement) || previous?.direction || null;
+  return { frame, end, direction, anchor: moved ? position : previous?.anchor || position };
 }
 
 export function cleaningCoverage(features, map) {
